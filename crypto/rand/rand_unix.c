@@ -21,7 +21,7 @@
 #if defined(__linux)
 # include <asm/unistd.h>
 #endif
-#if defined(__FreeBSD__)
+#if defined(__FreeBSD__) && !defined(OPENSSL_SYS_UEFI)
 # include <sys/types.h>
 # include <sys/sysctl.h>
 # include <sys/param.h>
@@ -30,7 +30,8 @@
 # include <sys/param.h>
 #endif
 
-#if defined(OPENSSL_SYS_UNIX) || defined(__DJGPP__)
+#if (defined(OPENSSL_SYS_UNIX) && !defined(OPENSSL_SYS_VXWORKS)) \
+     || defined(__DJGPP__)
 # include <sys/types.h>
 # include <sys/stat.h>
 # include <fcntl.h>
@@ -88,30 +89,8 @@ static uint64_t get_timer_bits(void);
 # undef OPENSSL_RAND_SEED_EGD
 #endif
 
-#if (defined(OPENSSL_SYS_VXWORKS) || defined(OPENSSL_SYS_UEFI)) && \
-        !defined(OPENSSL_RAND_SEED_NONE)
-# error "UEFI and VXWorks only support seeding NONE"
-#endif
-
-#if defined(OPENSSL_SYS_VXWORKS)
-/* empty implementation */
-int rand_pool_init(void)
-{
-    return 1;
-}
-
-void rand_pool_cleanup(void)
-{
-}
-
-void rand_pool_keep_random_devices_open(int keep)
-{
-}
-
-size_t rand_pool_acquire_entropy(RAND_POOL *pool)
-{
-    return rand_pool_entropy_available(pool);
-}
+#if defined(OPENSSL_SYS_UEFI) && !defined(OPENSSL_RAND_SEED_NONE)
+# error "UEFI only supports seeding NONE"
 #endif
 
 #if !(defined(OPENSSL_SYS_WINDOWS) || defined(OPENSSL_SYS_WIN32) \
@@ -306,7 +285,7 @@ static ssize_t syscall_random(void *buf, size_t buflen)
 
     if (getentropy != NULL)
         return getentropy(buf, buflen) == 0 ? (ssize_t)buflen : -1;
-#  else
+#  elif !defined(FIPS_MODE)
     union {
         void *p;
         int (*f)(void *buffer, size_t length);
@@ -510,29 +489,6 @@ size_t rand_pool_acquire_entropy(RAND_POOL *pool)
     bytes_needed = rand_pool_bytes_needed(pool, 1 /*entropy_factor*/);
     {
         size_t i;
-#ifdef DEVRANDOM_WAIT
-        static int wait_done = 0;
-
-        /*
-         * On some implementations reading from /dev/urandom is possible
-         * before it is initialized. Therefore we wait for /dev/random
-         * to be readable to make sure /dev/urandom is initialized.
-         */
-        if (!wait_done && bytes_needed > 0) {
-             int f = open(DEVRANDOM_WAIT, O_RDONLY);
-
-             if (f >= 0) {
-                 fd_set fds;
-
-                 FD_ZERO(&fds);
-                 FD_SET(f, &fds);
-                 while (select(f+1, &fds, NULL, NULL, NULL) < 0
-                        && errno == EINTR);
-                 close(f);
-             }
-             wait_done = 1;
-        }
-#endif
 
         for (i = 0; bytes_needed > 0 && i < OSSL_NELEM(random_device_paths); i++) {
             ssize_t bytes = 0;
@@ -608,7 +564,8 @@ size_t rand_pool_acquire_entropy(RAND_POOL *pool)
 # endif
 #endif
 
-#if defined(OPENSSL_SYS_UNIX) || defined(__DJGPP__)
+#if (defined(OPENSSL_SYS_UNIX) && !defined(OPENSSL_SYS_VXWORKS)) \
+     || defined(__DJGPP__)
 int rand_pool_add_nonce_data(RAND_POOL *pool)
 {
     struct {

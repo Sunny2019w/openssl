@@ -44,6 +44,10 @@ struct evp_cipher_ctx_st {
     int final_used;
     int block_mask;
     unsigned char final[EVP_MAX_BLOCK_LENGTH]; /* possible final block */
+
+    /* Provider ctx */
+    void *provctx;
+    EVP_CIPHER *fetched_cipher;
 } /* EVP_CIPHER_CTX */ ;
 
 struct evp_mac_ctx_st {
@@ -52,7 +56,7 @@ struct evp_mac_ctx_st {
 } /* EVP_MAC_CTX */;
 
 struct evp_kdf_ctx_st {
-    const EVP_KDF_METHOD *kmeth;
+    const EVP_KDF *meth;         /* Method structure */
     EVP_KDF_IMPL *impl;          /* Algorithm-specific data */
 } /* EVP_KDF_CTX */ ;
 
@@ -87,8 +91,7 @@ int is_partially_overlapping(const void *ptr1, const void *ptr2, int len);
 
 void *evp_generic_fetch(OPENSSL_CTX *ctx, int operation_id,
                         const char *algorithm, const char *properties,
-                        void *(*new_method)(int nid, const OSSL_DISPATCH *fns,
+                        void *(*new_method)(const OSSL_DISPATCH *fns,
                                             OSSL_PROVIDER *prov),
-                        int (*upref_method)(void *),
-                        void (*free_method)(void *),
-                        int (*nid_method)(void *));
+                        int (*up_ref_method)(void *),
+                        void (*free_method)(void *));

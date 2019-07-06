@@ -11,18 +11,6 @@
 #include <limits.h>
 #include <openssl/crypto.h>
 #include "internal/cryptlib.h"
-#include "internal/o_str.h"
-
-int OPENSSL_memcmp(const void *v1, const void *v2, size_t n)
-{
-    const unsigned char *c1 = v1, *c2 = v2;
-    int ret = 0;
-
-    while (n && (ret = *c1 - *c2) == 0)
-        n--, c1++, c2++;
-
-    return ret;
-}
 
 char *CRYPTO_strdup(const char *str, const char* file, int line)
 {
@@ -231,7 +219,7 @@ int openssl_strerror_r(int errnum, char *buf, size_t buflen)
      * buf is left unused.
      */
     err = strerror_r(errnum, buf, buflen);
-    if (err == NULL)
+    if (err == NULL || buflen == 0)
         return 0;
     /*
      * If err is statically allocated, err != buf and we need to copy the data.

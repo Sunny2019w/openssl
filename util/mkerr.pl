@@ -114,7 +114,8 @@ if ( $internal ) {
     die "Cannot mix -internal and -static\n" if $static;
     die "Extra parameters given.\n" if @ARGV;
     @source = ( glob('crypto/*.c'), glob('crypto/*/*.c'),
-                glob('ssl/*.c'), glob('ssl/*/*.c') );
+                glob('ssl/*.c'), glob('ssl/*/*.c'), glob('providers/*.c'),
+                glob('providers/*/*.c'), glob('providers/*/*/*.c') );
 } else {
     die "-module isn't useful without -internal\n" if scalar keys %modules > 0;
     @source = @ARGV;
@@ -462,7 +463,7 @@ EOF
         # Declare the load function because the generate C file
         # includes "fooerr.h" not "foo.h"
         if ($lib ne "SSL" && $lib ne "ASYNC"
-                && grep { $lib eq uc $_ } @disablables) {
+                && (grep { $lib eq uc $_ } @disablables, @disablables_int)) {
             print OUT <<"EOF";
 # include <openssl/opensslconf.h>
 

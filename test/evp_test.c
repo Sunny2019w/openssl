@@ -14,6 +14,7 @@
 #include <openssl/evp.h>
 #include <openssl/pem.h>
 #include <openssl/err.h>
+#include <openssl/provider.h>
 #include <openssl/x509v3.h>
 #include <openssl/pkcs12.h>
 #include <openssl/kdf.h>
@@ -74,6 +75,9 @@ static KEY_LIST *public_keys;
 static int find_key(EVP_PKEY **ppk, const char *name, KEY_LIST *lst);
 
 static int parse_bin(const char *value, unsigned char **buf, size_t *buflen);
+
+static OSSL_PROVIDER *defltprov = NULL;
+static OSSL_PROVIDER *legacyprov = NULL;
 
 /*
  * Compare two memory regions for equality, returning zero if they differ.
@@ -370,6 +374,11 @@ static int digest_test_parse(EVP_TEST *t,
         return evp_test_buffer_set_count(value, mdata->input);
     if (strcmp(keyword, "Ncopy") == 0)
         return evp_test_buffer_ncopy(value, mdata->input);
+    if (strcmp(keyword, "Legacy") == 0) {
+        if (legacyprov == NULL)
+            t->skip = 1;
+        return 1;
+    }
     return 0;
 }
 
@@ -463,6 +472,7 @@ typedef struct cipher_data_st {
     size_t aad_len[AAD_NUM];
     unsigned char *tag;
     size_t tag_len;
+    int tag_late;
 } CIPHER_DATA;
 
 static int cipher_test_init(EVP_TEST *t, const char *alg)
@@ -535,6 +545,15 @@ static int cipher_test_parse(EVP_TEST *t, const char *keyword,
         }
         if (strcmp(keyword, "Tag") == 0)
             return parse_bin(value, &cdat->tag, &cdat->tag_len);
+        if (strcmp(keyword, "SetTagLate") == 0) {
+            if (strcmp(value, "TRUE") == 0)
+                cdat->tag_late = 1;
+            else if (strcmp(value, "FALSE") == 0)
+                cdat->tag_late = 0;
+            else
+                return 0;
+            return 1;
+        }
     }
 
     if (strcmp(keyword, "Operation") == 0) {
@@ -620,7 +639,7 @@ static int cipher_test_enc(EVP_TEST *t, int enc,
          * If encrypting or OCB just set tag length initially, otherwise
          * set tag length and value.
          */
-        if (enc || expected->aead == EVP_CIPH_OCB_MODE) {
+        if (enc || expected->aead == EVP_CIPH_OCB_MODE || expected->tag_late) {
             t->err = "TAG_LENGTH_SET_ERROR";
             tag = NULL;
         } else {
@@ -641,14 +660,6 @@ static int cipher_test_enc(EVP_TEST *t, int enc,
     if (!EVP_CipherInit_ex(ctx, NULL, NULL, expected->key, expected->iv, -1)) {
         t->err = "KEY_SET_ERROR";
         goto err;
-    }
-
-    if (!enc && expected->aead == EVP_CIPH_OCB_MODE) {
-        if (!EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_AEAD_SET_TAG,
-                                 expected->tag_len, expected->tag)) {
-            t->err = "TAG_SET_ERROR";
-            goto err;
-        }
     }
 
     if (expected->aead == EVP_CIPH_CCM_MODE) {
@@ -689,6 +700,15 @@ static int cipher_test_enc(EVP_TEST *t, int enc,
             }
         }
     }
+
+    if (!enc && (expected->aead == EVP_CIPH_OCB_MODE || expected->tag_late)) {
+        if (!EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_AEAD_SET_TAG,
+                                 expected->tag_len, expected->tag)) {
+            t->err = "TAG_SET_ERROR";
+            goto err;
+        }
+    }
+
     EVP_CIPHER_CTX_set_padding(ctx, 0);
     t->err = "CIPHERUPDATE_ERROR";
     tmplen = 0;
@@ -1378,6 +1398,7 @@ static int pkey_test_run(EVP_TEST *t)
     PKEY_DATA *expected = t->data;
     unsigned char *got = NULL;
     size_t got_len;
+    EVP_PKEY_CTX *copy = NULL;
 
     if (expected->keyop(expected->ctx, NULL, &got_len,
                         expected->input, expected->input_len) <= 0
@@ -1396,8 +1417,33 @@ static int pkey_test_run(EVP_TEST *t)
         goto err;
 
     t->err = NULL;
+    OPENSSL_free(got);
+    got = NULL;
+
+    /* Repeat the test on a copy. */
+    if (!TEST_ptr(copy = EVP_PKEY_CTX_dup(expected->ctx))) {
+        t->err = "INTERNAL_ERROR";
+        goto err;
+    }
+    if (expected->keyop(copy, NULL, &got_len, expected->input,
+                        expected->input_len) <= 0
+            || !TEST_ptr(got = OPENSSL_malloc(got_len))) {
+        t->err = "KEYOP_LENGTH_ERROR";
+        goto err;
+    }
+    if (expected->keyop(copy, got, &got_len, expected->input,
+                        expected->input_len) <= 0) {
+        t->err = "KEYOP_ERROR";
+        goto err;
+    }
+    if (!memory_err_compare(t, "KEYOP_MISMATCH",
+                            expected->output, expected->output_len,
+                            got, got_len))
+        goto err;
+
  err:
     OPENSSL_free(got);
+    EVP_PKEY_CTX_free(copy);
     return 1;
 }
 
@@ -1912,7 +1958,7 @@ typedef struct kdf_data_st {
 static int kdf_test_init(EVP_TEST *t, const char *name)
 {
     KDF_DATA *kdata;
-    int kdf_nid = OBJ_sn2nid(name);
+    const EVP_KDF *kdf;
 
 #ifdef OPENSSL_NO_SCRYPT
     if (strcmp(name, "scrypt") == 0) {
@@ -1921,12 +1967,13 @@ static int kdf_test_init(EVP_TEST *t, const char *name)
     }
 #endif
 
-    if (kdf_nid == NID_undef)
-        kdf_nid = OBJ_ln2nid(name);
+    kdf = EVP_get_kdfbyname(name);
+    if (kdf == NULL)
+        return 0;
 
     if (!TEST_ptr(kdata = OPENSSL_zalloc(sizeof(*kdata))))
         return 0;
-    kdata->ctx = EVP_KDF_CTX_new_id(kdf_nid);
+    kdata->ctx = EVP_KDF_CTX_new(kdf);
     if (kdata->ctx == NULL) {
         OPENSSL_free(kdata);
         return 0;
@@ -3015,8 +3062,10 @@ static int run_file_tests(int i)
 
     while (!BIO_eof(t->s.fp)) {
         c = parse(t);
-        if (t->skip)
+        if (t->skip) {
+            t->s.numskip++;
             continue;
+        }
         if (c == 0 || !run_test(t)) {
             t->s.errors++;
             break;
@@ -3042,6 +3091,23 @@ int setup_tests(void)
     if (n == 0)
         return 0;
 
+    defltprov = OSSL_PROVIDER_load(NULL, "default");
+    if (!TEST_ptr(defltprov))
+        return 0;
+#ifndef NO_LEGACY_MODULE
+    legacyprov = OSSL_PROVIDER_load(NULL, "legacy");
+    if (!TEST_ptr(legacyprov)) {
+        OSSL_PROVIDER_unload(defltprov);
+        return 0;
+    }
+#endif /* NO_LEGACY_MODULE */
+
     ADD_ALL_TESTS(run_file_tests, n);
     return 1;
+}
+
+void cleanup_tests(void)
+{
+    OSSL_PROVIDER_unload(legacyprov);
+    OSSL_PROVIDER_unload(defltprov);
 }

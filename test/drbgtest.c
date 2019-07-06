@@ -332,7 +332,7 @@ static int error_check(DRBG_SELFTEST_DATA *td)
      * Personalisation string tests
      */
 
-    /* Test detection of too large personlisation string */
+    /* Test detection of too large personalisation string */
     if (!init(drbg, td, &t)
             || RAND_DRBG_instantiate(drbg, td->pers, drbg->max_perslen + 1) > 0)
         goto err;
@@ -802,6 +802,7 @@ static int test_rand_drbg_reseed(void)
     /* fill 'randomness' buffer with some arbitrary data */
     memset(rand_add_buf, 'r', sizeof(rand_add_buf));
 
+#ifndef FIPS_MODE
     /*
      * Test whether all three DRBGs are reseeded by RAND_add().
      * The before_reseed time has to be measured here and passed into the
@@ -827,6 +828,20 @@ static int test_rand_drbg_reseed(void)
     if (!TEST_true(test_drbg_reseed(0, master, public, private, 0, 0, 0, 0)))
         goto error;
     reset_drbg_hook_ctx();
+#else /* FIPS_MODE */
+    /*
+     * In FIPS mode, random data provided by the application via RAND_add()
+     * is not considered a trusted entropy source. It is only treated as
+     * additional_data and no reseeding is forced. This test assures that
+     * no reseeding occurs.
+     */
+    before_reseed = time(NULL);
+    RAND_add(rand_add_buf, sizeof(rand_add_buf), sizeof(rand_add_buf));
+    if (!TEST_true(test_drbg_reseed(1, master, public, private, 0, 0, 0,
+                                    before_reseed)))
+        goto error;
+    reset_drbg_hook_ctx();
+#endif
 
     rv = 1;
 
@@ -1012,6 +1027,83 @@ static int test_rand_add(void)
     return 1;
 }
 
+static int test_rand_drbg_prediction_resistance(void)
+{
+    RAND_DRBG *m = NULL, *i = NULL, *s = NULL;
+    unsigned char buf1[51], buf2[sizeof(buf1)];
+    int ret = 0, mreseed, ireseed, sreseed;
+
+    /* Initialise a three long DRBG chain */
+    if (!TEST_ptr(m = RAND_DRBG_new(0, 0, NULL))
+        || !TEST_true(disable_crngt(m))
+        || !TEST_true(RAND_DRBG_instantiate(m, NULL, 0))
+        || !TEST_ptr(i = RAND_DRBG_new(0, 0, m))
+        || !TEST_true(RAND_DRBG_instantiate(i, NULL, 0))
+        || !TEST_ptr(s = RAND_DRBG_new(0, 0, i))
+        || !TEST_true(RAND_DRBG_instantiate(s, NULL, 0)))
+        goto err;
+
+    /* During a normal reseed, only the slave DRBG should be reseed */
+    mreseed = ++m->reseed_prop_counter;
+    ireseed = ++i->reseed_prop_counter;
+    sreseed = s->reseed_prop_counter;
+    if (!TEST_true(RAND_DRBG_reseed(s, NULL, 0, 0))
+        || !TEST_int_eq(m->reseed_prop_counter, mreseed)
+        || !TEST_int_eq(i->reseed_prop_counter, ireseed)
+        || !TEST_int_gt(s->reseed_prop_counter, sreseed))
+        goto err;
+
+    /*
+     * When prediction resistance is requested, the request should be
+     * propagated to the master, so that the entire DRBG chain reseeds.
+     */
+    sreseed = s->reseed_prop_counter;
+    if (!TEST_true(RAND_DRBG_reseed(s, NULL, 0, 1))
+        || !TEST_int_gt(m->reseed_prop_counter, mreseed)
+        || !TEST_int_gt(i->reseed_prop_counter, ireseed)
+        || !TEST_int_gt(s->reseed_prop_counter, sreseed))
+        goto err;
+
+    /* During a normal generate, only the slave DRBG should be reseed */
+    mreseed = ++m->reseed_prop_counter;
+    ireseed = ++i->reseed_prop_counter;
+    sreseed = s->reseed_prop_counter;
+    if (!TEST_true(RAND_DRBG_generate(s, buf1, sizeof(buf1), 0, NULL, 0))
+        || !TEST_int_eq(m->reseed_prop_counter, mreseed)
+        || !TEST_int_eq(i->reseed_prop_counter, ireseed)
+        || !TEST_int_gt(s->reseed_prop_counter, sreseed))
+        goto err;
+
+    /*
+     * When a prediction resistant generate is requested, the request
+     * should be propagated to the master, reseeding the entire DRBG chain.
+     */
+    sreseed = s->reseed_prop_counter;
+    if (!TEST_true(RAND_DRBG_generate(s, buf2, sizeof(buf2), 1, NULL, 0))
+        || !TEST_int_gt(m->reseed_prop_counter, mreseed)
+        || !TEST_int_gt(i->reseed_prop_counter, ireseed)
+        || !TEST_int_gt(s->reseed_prop_counter, sreseed)
+        || !TEST_mem_ne(buf1, sizeof(buf1), buf2, sizeof(buf2)))
+        goto err;
+
+    /* Verify that a normal reseed still only reseeds the slave DRBG */
+    mreseed = ++m->reseed_prop_counter;
+    ireseed = ++i->reseed_prop_counter;
+    sreseed = s->reseed_prop_counter;
+    if (!TEST_true(RAND_DRBG_reseed(s, NULL, 0, 0))
+        || !TEST_int_eq(m->reseed_prop_counter, mreseed)
+        || !TEST_int_eq(i->reseed_prop_counter, ireseed)
+        || !TEST_int_gt(s->reseed_prop_counter, sreseed))
+        goto err;
+
+    ret = 1;
+err:
+    RAND_DRBG_free(s);
+    RAND_DRBG_free(i);
+    RAND_DRBG_free(m);
+    return ret;
+}
+
 static int test_multi_set(void)
 {
     int rv = 0;
@@ -1172,7 +1264,9 @@ static const size_t crngt_num_cases = 6;
 
 static size_t crngt_case, crngt_idx;
 
-static int crngt_entropy_cb(unsigned char *buf)
+static int crngt_entropy_cb(OPENSSL_CTX *ctx, RAND_POOL *pool,
+                            unsigned char *buf, unsigned char *md,
+                            unsigned int *md_size)
 {
     size_t i, z;
 
@@ -1184,7 +1278,7 @@ static int crngt_entropy_cb(unsigned char *buf)
         z--;
     for (i = 0; i < CRNGT_BUFSIZ; i++)
         buf[i] = (unsigned char)(i + 'A' + z);
-    return 1;
+    return EVP_Digest(buf, CRNGT_BUFSIZ, md, md_size, EVP_sha256(), NULL);
 }
 
 static int test_crngt(int n)
@@ -1195,19 +1289,16 @@ static int test_crngt(int n)
     size_t ent;
     int res = 0;
     int expect;
+    OPENSSL_CTX *ctx = OPENSSL_CTX_new();
 
-    if (!TEST_true(rand_crngt_single_init()))
+    if (!TEST_ptr(ctx))
         return 0;
-    rand_crngt_cleanup();
-
-    if (!TEST_ptr(drbg = RAND_DRBG_new(dt->nid, dt->flags, NULL)))
-        return 0;
+    if (!TEST_ptr(drbg = RAND_DRBG_new_ex(ctx, dt->nid, dt->flags, NULL)))
+        goto err;
     ent = (drbg->min_entropylen + CRNGT_BUFSIZ - 1) / CRNGT_BUFSIZ;
     crngt_case = n % crngt_num_cases;
     crngt_idx = 0;
     crngt_get_entropy = &crngt_entropy_cb;
-    if (!TEST_true(rand_crngt_init()))
-        goto err;
 #ifndef FIPS_MODE
     if (!TEST_true(RAND_DRBG_set_callbacks(drbg, &rand_crngt_get_entropy,
                                            &rand_crngt_cleanup_entropy,
@@ -1240,6 +1331,7 @@ err:
     uninstantiate(drbg);
     RAND_DRBG_free(drbg);
     crngt_get_entropy = &rand_crngt_get_entropy_cb;
+    OPENSSL_CTX_free(ctx);
     return res;
 }
 
@@ -1252,6 +1344,7 @@ int setup_tests(void)
     ADD_TEST(test_rand_drbg_reseed);
     ADD_TEST(test_rand_seed);
     ADD_TEST(test_rand_add);
+    ADD_TEST(test_rand_drbg_prediction_resistance);
     ADD_TEST(test_multi_set);
     ADD_TEST(test_set_defaults);
 #if defined(OPENSSL_THREADS)

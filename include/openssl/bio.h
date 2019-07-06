@@ -20,10 +20,6 @@
 # include <openssl/crypto.h>
 # include <openssl/bioerr.h>
 
-# ifndef OPENSSL_NO_SCTP
-#  include <openssl/e_os2.h>
-# endif
-
 #ifdef  __cplusplus
 extern "C" {
 #endif
@@ -152,13 +148,20 @@ extern "C" {
  * # define BIO_CTRL_CLEAR_KTLS_CTRL_MSG           75
  */
 
-#  define BIO_CTRL_GET_KTLS_SEND                 73
-#  define BIO_CTRL_GET_KTLS_RECV                 76
+# define BIO_CTRL_GET_KTLS_SEND                 73
+# define BIO_CTRL_GET_KTLS_RECV                 76
 
+# ifndef OPENSSL_NO_KTLS
 #  define BIO_get_ktls_send(b)         \
-     BIO_ctrl(b, BIO_CTRL_GET_KTLS_SEND, 0, NULL)
+     (BIO_method_type(b) == BIO_TYPE_SOCKET \
+      && BIO_ctrl(b, BIO_CTRL_GET_KTLS_SEND, 0, NULL))
 #  define BIO_get_ktls_recv(b)         \
-     BIO_ctrl(b, BIO_CTRL_GET_KTLS_RECV, 0, NULL)
+     (BIO_method_type(b) == BIO_TYPE_SOCKET \
+      && BIO_ctrl(b, BIO_CTRL_GET_KTLS_RECV, 0, NULL))
+# else
+#  define BIO_get_ktls_send(b)  (0)
+#  define BIO_get_ktls_recv(b)  (0)
+# endif
 
 /* modifiers */
 # define BIO_FP_READ             0x02
@@ -171,12 +174,9 @@ extern "C" {
 # define BIO_FLAGS_IO_SPECIAL    0x04
 # define BIO_FLAGS_RWS (BIO_FLAGS_READ|BIO_FLAGS_WRITE|BIO_FLAGS_IO_SPECIAL)
 # define BIO_FLAGS_SHOULD_RETRY  0x08
-# ifndef BIO_FLAGS_UPLINK
-/*
- * "UPLINK" flag denotes file descriptors provided by application. It
- * defaults to 0, as most platforms don't require UPLINK interface.
- */
-#  define BIO_FLAGS_UPLINK        0
+# if !OPENSSL_API_3
+/* This #define was replaced by an internal constant and should not be used. */
+#  define BIO_FLAGS_UPLINK       0
 # endif
 
 # define BIO_FLAGS_BASE64_NO_NL  0x100

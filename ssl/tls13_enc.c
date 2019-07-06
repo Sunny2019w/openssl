@@ -31,7 +31,7 @@ int tls13_hkdf_expand(SSL *s, const EVP_MD *md, const unsigned char *secret,
                              unsigned char *out, size_t outlen, int fatal)
 {
     static const unsigned char label_prefix[] = "tls13 ";
-    EVP_PKEY_CTX *pctx = EVP_PKEY_CTX_new_id(EVP_PKEY_HKDF, NULL);
+    EVP_KDF_CTX *kctx = EVP_KDF_CTX_new_id(EVP_PKEY_HKDF);
     int ret;
     size_t hkdflabellen;
     size_t hashlen;
@@ -45,7 +45,7 @@ int tls13_hkdf_expand(SSL *s, const EVP_MD *md, const unsigned char *secret,
                             + 1 + EVP_MAX_MD_SIZE];
     WPACKET pkt;
 
-    if (pctx == NULL)
+    if (kctx == NULL)
         return 0;
 
     if (labellen > TLS13_MAX_LABEL_LEN) {
@@ -59,7 +59,7 @@ int tls13_hkdf_expand(SSL *s, const EVP_MD *md, const unsigned char *secret,
              */
             SSLerr(SSL_F_TLS13_HKDF_EXPAND, SSL_R_TLS_ILLEGAL_EXPORTER_LABEL);
         }
-        EVP_PKEY_CTX_free(pctx);
+        EVP_KDF_CTX_free(kctx);
         return 0;
     }
 
@@ -74,7 +74,7 @@ int tls13_hkdf_expand(SSL *s, const EVP_MD *md, const unsigned char *secret,
             || !WPACKET_sub_memcpy_u8(&pkt, data, (data == NULL) ? 0 : datalen)
             || !WPACKET_get_total_written(&pkt, &hkdflabellen)
             || !WPACKET_finish(&pkt)) {
-        EVP_PKEY_CTX_free(pctx);
+        EVP_KDF_CTX_free(kctx);
         WPACKET_cleanup(&pkt);
         if (fatal)
             SSLfatal(s, SSL_AD_INTERNAL_ERROR, SSL_F_TLS13_HKDF_EXPAND,
@@ -84,15 +84,15 @@ int tls13_hkdf_expand(SSL *s, const EVP_MD *md, const unsigned char *secret,
         return 0;
     }
 
-    ret = EVP_PKEY_derive_init(pctx) <= 0
-            || EVP_PKEY_CTX_hkdf_mode(pctx, EVP_PKEY_HKDEF_MODE_EXPAND_ONLY)
-               <= 0
-            || EVP_PKEY_CTX_set_hkdf_md(pctx, md) <= 0
-            || EVP_PKEY_CTX_set1_hkdf_key(pctx, secret, hashlen) <= 0
-            || EVP_PKEY_CTX_add1_hkdf_info(pctx, hkdflabel, hkdflabellen) <= 0
-            || EVP_PKEY_derive(pctx, out, &outlen) <= 0;
+    ret = EVP_KDF_ctrl(kctx, EVP_KDF_CTRL_SET_HKDF_MODE,
+                       EVP_PKEY_HKDEF_MODE_EXPAND_ONLY) <= 0
+        || EVP_KDF_ctrl(kctx, EVP_KDF_CTRL_SET_MD, md) <= 0
+        || EVP_KDF_ctrl(kctx, EVP_KDF_CTRL_SET_KEY, secret, hashlen) <= 0
+        || EVP_KDF_ctrl(kctx, EVP_KDF_CTRL_ADD_HKDF_INFO,
+                        hkdflabel, hkdflabellen) <= 0
+        || EVP_KDF_derive(kctx, out, outlen) <= 0;
 
-    EVP_PKEY_CTX_free(pctx);
+    EVP_KDF_CTX_free(kctx);
 
     if (ret != 0) {
         if (fatal)
@@ -155,11 +155,11 @@ int tls13_generate_secret(SSL *s, const EVP_MD *md,
     size_t mdlen, prevsecretlen;
     int mdleni;
     int ret;
-    EVP_PKEY_CTX *pctx = EVP_PKEY_CTX_new_id(EVP_PKEY_HKDF, NULL);
+    EVP_KDF_CTX *kctx = EVP_KDF_CTX_new_id(EVP_PKEY_HKDF);
     static const char derived_secret_label[] = "derived";
     unsigned char preextractsec[EVP_MAX_MD_SIZE];
 
-    if (pctx == NULL) {
+    if (kctx == NULL) {
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, SSL_F_TLS13_GENERATE_SECRET,
                  ERR_R_INTERNAL_ERROR);
         return 0;
@@ -170,6 +170,7 @@ int tls13_generate_secret(SSL *s, const EVP_MD *md,
     if (!ossl_assert(mdleni >= 0)) {
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, SSL_F_TLS13_GENERATE_SECRET,
                  ERR_R_INTERNAL_ERROR);
+        EVP_KDF_CTX_free(kctx);
         return 0;
     }
     mdlen = (size_t)mdleni;
@@ -192,7 +193,7 @@ int tls13_generate_secret(SSL *s, const EVP_MD *md,
             SSLfatal(s, SSL_AD_INTERNAL_ERROR, SSL_F_TLS13_GENERATE_SECRET,
                      ERR_R_INTERNAL_ERROR);
             EVP_MD_CTX_free(mctx);
-            EVP_PKEY_CTX_free(pctx);
+            EVP_KDF_CTX_free(kctx);
             return 0;
         }
         EVP_MD_CTX_free(mctx);
@@ -203,7 +204,7 @@ int tls13_generate_secret(SSL *s, const EVP_MD *md,
                                sizeof(derived_secret_label) - 1, hash, mdlen,
                                preextractsec, mdlen, 1)) {
             /* SSLfatal() already called */
-            EVP_PKEY_CTX_free(pctx);
+            EVP_KDF_CTX_free(kctx);
             return 0;
         }
 
@@ -211,21 +212,19 @@ int tls13_generate_secret(SSL *s, const EVP_MD *md,
         prevsecretlen = mdlen;
     }
 
-    ret = EVP_PKEY_derive_init(pctx) <= 0
-            || EVP_PKEY_CTX_hkdf_mode(pctx, EVP_PKEY_HKDEF_MODE_EXTRACT_ONLY)
-               <= 0
-            || EVP_PKEY_CTX_set_hkdf_md(pctx, md) <= 0
-            || EVP_PKEY_CTX_set1_hkdf_key(pctx, insecret, insecretlen) <= 0
-            || EVP_PKEY_CTX_set1_hkdf_salt(pctx, prevsecret, prevsecretlen)
-               <= 0
-            || EVP_PKEY_derive(pctx, outsecret, &mdlen)
-               <= 0;
+    ret = EVP_KDF_ctrl(kctx, EVP_KDF_CTRL_SET_HKDF_MODE,
+                       EVP_PKEY_HKDEF_MODE_EXTRACT_ONLY) <= 0
+        || EVP_KDF_ctrl(kctx, EVP_KDF_CTRL_SET_MD, md) <= 0
+        || EVP_KDF_ctrl(kctx, EVP_KDF_CTRL_SET_KEY, insecret, insecretlen) <= 0
+        || EVP_KDF_ctrl(kctx, EVP_KDF_CTRL_SET_SALT,
+                        prevsecret, prevsecretlen) <= 0
+        || EVP_KDF_derive(kctx, outsecret, mdlen) <= 0;
 
     if (ret != 0)
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, SSL_F_TLS13_GENERATE_SECRET,
                  ERR_R_INTERNAL_ERROR);
 
-    EVP_PKEY_CTX_free(pctx);
+    EVP_KDF_CTX_free(kctx);
     if (prevsecret == preextractsec)
         OPENSSL_cleanse(preextractsec, mdlen);
     return ret == 0;
@@ -324,15 +323,15 @@ int tls13_setup_key_block(SSL *s)
     const EVP_CIPHER *c;
     const EVP_MD *hash;
 
-    s->session->cipher = s->s3->tmp.new_cipher;
+    s->session->cipher = s->s3.tmp.new_cipher;
     if (!ssl_cipher_get_evp(s->session, &c, &hash, NULL, NULL, NULL, 0)) {
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, SSL_F_TLS13_SETUP_KEY_BLOCK,
                  SSL_R_CIPHER_OR_HASH_UNAVAILABLE);
         return 0;
     }
 
-    s->s3->tmp.new_sym_enc = c;
-    s->s3->tmp.new_hash = hash;
+    s->s3.tmp.new_sym_enc = c;
+    s->s3.tmp.new_hash = hash;
 
     return 1;
 }
@@ -370,11 +369,11 @@ static int derive_secret_key_and_iv(SSL *s, int sending, const EVP_MD *md,
         uint32_t algenc;
 
         ivlen = EVP_CCM_TLS_IV_LEN;
-        if (s->s3->tmp.new_cipher == NULL) {
+        if (s->s3.tmp.new_cipher == NULL) {
             /* We've not selected a cipher yet - we must be doing early data */
             algenc = s->session->cipher->algorithm_enc;
         } else {
-            algenc = s->s3->tmp.new_cipher->algorithm_enc;
+            algenc = s->s3.tmp.new_cipher->algorithm_enc;
         }
         if (algenc & (SSL_AES128CCM8 | SSL_AES256CCM8))
             taglen = EVP_CCM8_TLS_TAG_LEN;
@@ -479,7 +478,7 @@ int tls13_change_cipher_state(SSL *s, int which)
             labellen = sizeof(client_early_traffic) - 1;
             log_label = CLIENT_EARLY_LABEL;
 
-            handlen = BIO_get_mem_data(s->s3->handshake_buffer, &hdata);
+            handlen = BIO_get_mem_data(s->s3.handshake_buffer, &hdata);
             if (handlen <= 0) {
                 SSLfatal(s, SSL_AD_INTERNAL_ERROR,
                          SSL_F_TLS13_CHANGE_CIPHER_STATE,
@@ -600,7 +599,7 @@ int tls13_change_cipher_state(SSL *s, int which)
 
     if (!(which & SSL3_CC_EARLY)) {
         md = ssl_handshake_md(s);
-        cipher = s->s3->tmp.new_sym_enc;
+        cipher = s->s3.tmp.new_sym_enc;
         if (!ssl3_digest_cached_records(s, 1)
                 || !ssl_handshake_hash(s, hashval, sizeof(hashval), &hashlen)) {
             /* SSLfatal() already called */;
@@ -709,7 +708,7 @@ int tls13_update_key(SSL *s, int sending)
     }
 
     if (!derive_secret_key_and_iv(s, sending, ssl_handshake_md(s),
-                                  s->s3->tmp.new_sym_enc, insecret, NULL,
+                                  s->s3.tmp.new_sym_enc, insecret, NULL,
                                   application_traffic,
                                   sizeof(application_traffic) - 1, secret, iv,
                                   ciph_ctx)) {

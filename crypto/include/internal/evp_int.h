@@ -118,7 +118,7 @@ typedef struct evp_mac_impl_st EVP_MAC_IMPL;
 struct evp_mac_st {
     int type;
     EVP_MAC_IMPL *(*new) (void);
-    int (*copy) (EVP_MAC_IMPL *macdst, EVP_MAC_IMPL *macsrc);
+    EVP_MAC_IMPL *(*dup) (const EVP_MAC_IMPL *macsrc);
     void (*free) (EVP_MAC_IMPL *macctx);
     size_t (*size) (EVP_MAC_IMPL *macctx);
     int (*init) (EVP_MAC_IMPL *macctx);
@@ -151,10 +151,11 @@ const EVP_MD *evp_keccak_kmac256(void);
  * object database.
  */
 int EVP_add_mac(const EVP_MAC *mac);
+int EVP_add_kdf(const EVP_KDF *kdf);
 
 /* struct evp_kdf_impl_st is defined by the implementation */
 typedef struct evp_kdf_impl_st EVP_KDF_IMPL;
-typedef struct {
+struct evp_kdf_st {
     int type;
     EVP_KDF_IMPL *(*new) (void);
     void (*free) (EVP_KDF_IMPL *impl);
@@ -163,14 +164,15 @@ typedef struct {
     int (*ctrl_str) (EVP_KDF_IMPL *impl, const char *type, const char *value);
     size_t (*size) (EVP_KDF_IMPL *impl);
     int (*derive) (EVP_KDF_IMPL *impl, unsigned char *key, size_t keylen);
-} EVP_KDF_METHOD;
+};
 
-extern const EVP_KDF_METHOD pbkdf2_kdf_meth;
-extern const EVP_KDF_METHOD scrypt_kdf_meth;
-extern const EVP_KDF_METHOD tls1_prf_kdf_meth;
-extern const EVP_KDF_METHOD hkdf_kdf_meth;
-extern const EVP_KDF_METHOD sshkdf_kdf_meth;
-extern const EVP_KDF_METHOD ss_kdf_meth;
+extern const EVP_KDF pbkdf2_kdf_meth;
+extern const EVP_KDF scrypt_kdf_meth;
+extern const EVP_KDF tls1_prf_kdf_meth;
+extern const EVP_KDF hkdf_kdf_meth;
+extern const EVP_KDF sshkdf_kdf_meth;
+extern const EVP_KDF ss_kdf_meth;
+extern const EVP_KDF x963_kdf_meth;
 
 struct evp_md_st {
     /* nid */
@@ -205,15 +207,21 @@ struct evp_md_st {
     OSSL_OP_digest_dupctx_fn *dupctx;
     OSSL_OP_digest_size_fn *size;
     OSSL_OP_digest_block_size_fn *dblock_size;
+    OSSL_OP_digest_set_params_fn *set_params;
+    OSSL_OP_digest_get_params_fn *get_params;
 
 } /* EVP_MD */ ;
 
 struct evp_cipher_st {
     int nid;
+
     int block_size;
     /* Default value for variable length ciphers */
     int key_len;
     int iv_len;
+
+    /* Legacy structure members */
+    /* TODO(3.0): Remove these */
     /* Various flags */
     unsigned long flags;
     /* init key */
@@ -234,6 +242,26 @@ struct evp_cipher_st {
     int (*ctrl) (EVP_CIPHER_CTX *, int type, int arg, void *ptr);
     /* Application data */
     void *app_data;
+
+    /* New structure members */
+    /* TODO(3.0): Remove above comment when legacy has gone */
+    OSSL_PROVIDER *prov;
+    CRYPTO_REF_COUNT refcnt;
+    CRYPTO_RWLOCK *lock;
+    OSSL_OP_cipher_newctx_fn *newctx;
+    OSSL_OP_cipher_encrypt_init_fn *einit;
+    OSSL_OP_cipher_decrypt_init_fn *dinit;
+    OSSL_OP_cipher_update_fn *cupdate;
+    OSSL_OP_cipher_final_fn *cfinal;
+    OSSL_OP_cipher_cipher_fn *ccipher;
+    OSSL_OP_cipher_freectx_fn *freectx;
+    OSSL_OP_cipher_dupctx_fn *dupctx;
+    OSSL_OP_cipher_key_length_fn *key_length;
+    OSSL_OP_cipher_iv_length_fn *iv_length;
+    OSSL_OP_cipher_block_size_fn *blocksize;
+    OSSL_OP_cipher_get_params_fn *get_params;
+    OSSL_OP_cipher_ctx_get_params_fn *ctx_get_params;
+    OSSL_OP_cipher_ctx_set_params_fn *ctx_set_params;
 } /* EVP_CIPHER */ ;
 
 /* Macros to code block cipher wrappers */
@@ -504,6 +532,7 @@ struct evp_pkey_st {
 void openssl_add_all_ciphers_int(void);
 void openssl_add_all_digests_int(void);
 void openssl_add_all_macs_int(void);
+void openssl_add_all_kdfs_int(void);
 void evp_cleanup_int(void);
 void evp_app_cleanup_int(void);
 
