@@ -20,14 +20,14 @@ static OSSL_core_get_param_types_fn *c_get_param_types = NULL;
 static OSSL_core_get_params_fn *c_get_params = NULL;
 
 /* Parameters we provide to the core */
-static const OSSL_ITEM deflt_param_types[] = {
-    { OSSL_PARAM_UTF8_PTR, OSSL_PROV_PARAM_NAME },
-    { OSSL_PARAM_UTF8_PTR, OSSL_PROV_PARAM_VERSION },
-    { OSSL_PARAM_UTF8_PTR, OSSL_PROV_PARAM_BUILDINFO },
-    { 0, NULL }
+static const OSSL_PARAM deflt_param_types[] = {
+    OSSL_PARAM_DEFN(OSSL_PROV_PARAM_NAME, OSSL_PARAM_UTF8_PTR, NULL, 0),
+    OSSL_PARAM_DEFN(OSSL_PROV_PARAM_VERSION, OSSL_PARAM_UTF8_PTR, NULL, 0),
+    OSSL_PARAM_DEFN(OSSL_PROV_PARAM_BUILDINFO, OSSL_PARAM_UTF8_PTR, NULL, 0),
+    OSSL_PARAM_END
 };
 
-static const OSSL_ITEM *deflt_get_param_types(const OSSL_PROVIDER *prov)
+static const OSSL_PARAM *deflt_get_param_types(const OSSL_PROVIDER *prov)
 {
     return deflt_param_types;
 }
@@ -114,6 +114,20 @@ static const OSSL_ALGORITHM deflt_ciphers[] = {
     { NULL, NULL, NULL }
 };
 
+static const OSSL_ALGORITHM deflt_keyexch[] = {
+#ifndef OPENSSL_NO_DH
+    { "dhKeyAgreement", "default=yes", dh_keyexch_functions },
+#endif
+    { NULL, NULL, NULL }
+};
+
+static const OSSL_ALGORITHM deflt_keymgmt[] = {
+#ifndef OPENSSL_NO_DH
+    { "dhKeyAgreement", "default=yes", dh_keymgmt_functions },
+#endif
+    { NULL, NULL, NULL }
+};
+
 static const OSSL_ALGORITHM *deflt_query(OSSL_PROVIDER *prov,
                                          int operation_id,
                                          int *no_cache)
@@ -124,6 +138,10 @@ static const OSSL_ALGORITHM *deflt_query(OSSL_PROVIDER *prov,
         return deflt_digests;
     case OSSL_OP_CIPHER:
         return deflt_ciphers;
+    case OSSL_OP_KEYMGMT:
+        return deflt_keymgmt;
+    case OSSL_OP_KEYEXCH:
+        return deflt_keyexch;
     }
     return NULL;
 }

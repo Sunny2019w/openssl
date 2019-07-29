@@ -2,6 +2,7 @@
 
 =head1 NAME
 
+EVP_CIPHER_fetch,
 EVP_CIPHER_CTX_new,
 EVP_CIPHER_CTX_reset,
 EVP_CIPHER_CTX_free,
@@ -25,6 +26,8 @@ EVP_CipherFinal,
 EVP_get_cipherbyname,
 EVP_get_cipherbynid,
 EVP_get_cipherbyobj,
+EVP_CIPHER_name,
+EVP_CIPHER_provider,
 EVP_CIPHER_nid,
 EVP_CIPHER_block_size,
 EVP_CIPHER_key_length,
@@ -33,6 +36,7 @@ EVP_CIPHER_flags,
 EVP_CIPHER_mode,
 EVP_CIPHER_type,
 EVP_CIPHER_CTX_cipher,
+EVP_CIPHER_CTX_name,
 EVP_CIPHER_CTX_nid,
 EVP_CIPHER_CTX_block_size,
 EVP_CIPHER_CTX_key_length,
@@ -45,7 +49,8 @@ EVP_CIPHER_CTX_mode,
 EVP_CIPHER_param_to_asn1,
 EVP_CIPHER_asn1_to_param,
 EVP_CIPHER_CTX_set_padding,
-EVP_enc_null
+EVP_enc_null,
+EVP_CIPHER_do_all_ex
 - EVP cipher routines
 
 =head1 SYNOPSIS
@@ -54,6 +59,8 @@ EVP_enc_null
 
  #include <openssl/evp.h>
 
+ EVP_CIPHER *EVP_CIPHER_fetch(OPENSSL_CTX *ctx, const char *algorithm,
+                              const char *properties);
  EVP_CIPHER_CTX *EVP_CIPHER_CTX_new(void);
  int EVP_CIPHER_CTX_reset(EVP_CIPHER_CTX *ctx);
  void EVP_CIPHER_CTX_free(EVP_CIPHER_CTX *ctx);
@@ -98,6 +105,8 @@ EVP_enc_null
  const EVP_CIPHER *EVP_get_cipherbyobj(const ASN1_OBJECT *a);
 
  int EVP_CIPHER_nid(const EVP_CIPHER *e);
+ const char *EVP_CIPHER_name(const EVP_CIPHER *cipher);
+ const OSSL_PROVIDER *EVP_CIPHER_provider(const EVP_CIPHER *cipher);
  int EVP_CIPHER_block_size(const EVP_CIPHER *e);
  int EVP_CIPHER_key_length(const EVP_CIPHER *e);
  int EVP_CIPHER_iv_length(const EVP_CIPHER *e);
@@ -107,6 +116,7 @@ EVP_enc_null
 
  const EVP_CIPHER *EVP_CIPHER_CTX_cipher(const EVP_CIPHER_CTX *ctx);
  int EVP_CIPHER_CTX_nid(const EVP_CIPHER_CTX *ctx);
+ const char *EVP_CIPHER_CTX_name(const EVP_CIPHER_CTX *ctx);
  int EVP_CIPHER_CTX_block_size(const EVP_CIPHER_CTX *ctx);
  int EVP_CIPHER_CTX_key_length(const EVP_CIPHER_CTX *ctx);
  int EVP_CIPHER_CTX_iv_length(const EVP_CIPHER_CTX *ctx);
@@ -118,10 +128,22 @@ EVP_enc_null
  int EVP_CIPHER_param_to_asn1(EVP_CIPHER_CTX *c, ASN1_TYPE *type);
  int EVP_CIPHER_asn1_to_param(EVP_CIPHER_CTX *c, ASN1_TYPE *type);
 
+ void EVP_CIPHER_do_all_ex(OPENSSL_CTX *libctx,
+                           void (*fn)(EVP_CIPHER *cipher, void *arg),
+                           void *arg);
+
 =head1 DESCRIPTION
 
 The EVP cipher routines are a high level interface to certain
 symmetric ciphers.
+
+EVP_CIPHER_fetch() fetches the cipher implementation for the given
+B<algorithm> from any provider offering it, within the criteria given
+by the B<properties>.
+See L<provider(7)/Fetching algorithms> for further information.
+
+The returned value must eventually be freed with
+L<EVP_CIPHER_meth_free(3)>.
 
 EVP_CIPHER_CTX_new() creates a cipher context.
 
@@ -132,10 +154,11 @@ cipher are complete so sensitive information does not remain in
 memory.
 
 EVP_EncryptInit_ex() sets up cipher context B<ctx> for encryption
-with cipher B<type> from ENGINE B<impl>. B<ctx> must be created
-before calling this function. B<type> is normally supplied
-by a function such as EVP_aes_256_cbc(). If B<impl> is NULL then the
-default implementation is used. B<key> is the symmetric key to use
+with cipher B<type>. B<type> is typically supplied by a function such
+as EVP_aes_256_cbc(), or a value explicitly fetched with
+EVP_CIPHER_fetch(). If B<impl> is non-NULL, its implementation of the
+cipher B<type> is used if there is one, and if not, the default
+implementation is used. B<key> is the symmetric key to use
 and B<iv> is the IV to use (if necessary), the actual number of bytes
 used for the key and IV depends on the cipher. It is possible to set
 all parameters to NULL except B<type> in an initial call and supply
@@ -243,6 +266,12 @@ IDENTIFIER as such it ignores the cipher parameters and 40 bit RC2 and
 identifier or does not have ASN1 support this function will return
 B<NID_undef>.
 
+EVP_CIPHER_name() and EVP_CIPHER_CTX_name() return the name of the passed
+cipher or context.
+
+EVP_CIPHER_provider() returns an B<OSSL_PROVIDER> pointer to the provider
+that implements the given B<EVP_CIPHER>.
+
 EVP_CIPHER_CTX_cipher() returns the B<EVP_CIPHER> structure when passed
 an B<EVP_CIPHER_CTX> structure.
 
@@ -278,7 +307,15 @@ based on the cipher context. The EVP_CIPHER can provide its own random key
 generation routine to support keys of a specific form. B<Key> must point to a
 buffer at least as big as the value returned by EVP_CIPHER_CTX_key_length().
 
+EVP_CIPHER_do_all_ex() traverses all ciphers implemented by all activated
+providers in the given library context I<libctx>, and for each of the
+implementations, calls the given function I<fn> with the implementation method
+and the given I<arg> as argument.
+
 =head1 RETURN VALUES
+
+EVP_CIPHER_fetch() returns a pointer to a B<EVP_CIPHER> for success
+and B<NULL> for failure.
 
 EVP_CIPHER_CTX_new() returns a pointer to a newly created
 B<EVP_CIPHER_CTX> for success and B<NULL> for failure.

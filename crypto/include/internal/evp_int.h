@@ -18,6 +18,11 @@
 #define EVP_MD_CTX_FLAG_KEEP_PKEY_CTX   0x0400
 
 struct evp_pkey_ctx_st {
+    EVP_KEYEXCH *exchange;
+    void *exchprovctx;
+
+    /* Legacy fields below */
+
     /* Method associated with this operation */
     const EVP_PKEY_METHOD *pmeth;
     /* Engine that implements this method or NULL if builtin */
@@ -173,6 +178,7 @@ extern const EVP_KDF hkdf_kdf_meth;
 extern const EVP_KDF sshkdf_kdf_meth;
 extern const EVP_KDF ss_kdf_meth;
 extern const EVP_KDF x963_kdf_meth;
+extern const EVP_KDF x942_kdf_meth;
 
 struct evp_md_st {
     /* nid */
@@ -195,6 +201,7 @@ struct evp_md_st {
 
     /* New structure members */
     /* TODO(3.0): Remove above comment when legacy has gone */
+    char *name;
     OSSL_PROVIDER *prov;
     CRYPTO_REF_COUNT refcnt;
     CRYPTO_RWLOCK *lock;
@@ -245,6 +252,7 @@ struct evp_cipher_st {
 
     /* New structure members */
     /* TODO(3.0): Remove above comment when legacy has gone */
+    char *name;
     OSSL_PROVIDER *prov;
     CRYPTO_REF_COUNT refcnt;
     CRYPTO_RWLOCK *lock;
@@ -256,9 +264,6 @@ struct evp_cipher_st {
     OSSL_OP_cipher_cipher_fn *ccipher;
     OSSL_OP_cipher_freectx_fn *freectx;
     OSSL_OP_cipher_dupctx_fn *dupctx;
-    OSSL_OP_cipher_key_length_fn *key_length;
-    OSSL_OP_cipher_iv_length_fn *iv_length;
-    OSSL_OP_cipher_block_size_fn *blocksize;
     OSSL_OP_cipher_get_params_fn *get_params;
     OSSL_OP_cipher_ctx_get_params_fn *ctx_get_params;
     OSSL_OP_cipher_ctx_set_params_fn *ctx_set_params;
@@ -501,9 +506,9 @@ typedef struct {
  * method, as in, can it do arbitrary encryption....
  */
 struct evp_pkey_st {
+    /* == Legacy attributes == */
     int type;
     int save_type;
-    CRYPTO_REF_COUNT references;
     const EVP_PKEY_ASN1_METHOD *ameth;
     ENGINE *engine;
     ENGINE *pmeth_engine; /* If not NULL public key ENGINE to use */
@@ -523,9 +528,30 @@ struct evp_pkey_st {
         ECX_KEY *ecx;           /* X25519, X448, Ed25519, Ed448 */
 # endif
     } pkey;
-    int save_parameters;
-    STACK_OF(X509_ATTRIBUTE) *attributes; /* [ 0 ] */
+
+    /* == Common attributes == */
+    CRYPTO_REF_COUNT references;
     CRYPTO_RWLOCK *lock;
+    STACK_OF(X509_ATTRIBUTE) *attributes; /* [ 0 ] */
+    int save_parameters;
+
+    /* == Provider attributes == */
+    /*
+     * To support transparent export/import between providers that
+     * support the methods for it, and still not having to do the
+     * export/import every time a key is used, we maintain a cache
+     * of imported key, indexed by provider address.
+     * pkeys[0] is *always* the "original" key.
+     */
+    struct {
+        EVP_KEYMGMT *keymgmt;
+        void *provkey;
+    } pkeys[10];
+    /*
+     * If there is a legacy key assigned to this structure, we keep
+     * a copy of that key's dirty count.
+     */
+    size_t dirty_cnt_copy;
 } /* EVP_PKEY */ ;
 
 
@@ -535,6 +561,36 @@ void openssl_add_all_macs_int(void);
 void openssl_add_all_kdfs_int(void);
 void evp_cleanup_int(void);
 void evp_app_cleanup_int(void);
+
+/* KEYMGMT helper functions */
+void *evp_keymgmt_export_to_provider(EVP_PKEY *pk, EVP_KEYMGMT *keymgmt);
+void evp_keymgmt_clear_pkey_cache(EVP_PKEY *pk);
+
+/* KEYMGMT provider interface functions */
+void *evp_keymgmt_importdomparams(const EVP_KEYMGMT *keymgmt,
+                                  const OSSL_PARAM params[]);
+void *evp_keymgmt_gendomparams(const EVP_KEYMGMT *keymgmt,
+                            const OSSL_PARAM params[]);
+void evp_keymgmt_freedomparams(const EVP_KEYMGMT *keymgmt,
+                               void *provdomparams);
+int evp_keymgmt_exportdomparams(const EVP_KEYMGMT *keymgmt,
+                                void *provdomparams, OSSL_PARAM params[]);
+const OSSL_PARAM *
+evp_keymgmt_importdomparam_types(const EVP_KEYMGMT *keymgmt);
+const OSSL_PARAM *
+evp_keymgmt_exportdomparam_types(const EVP_KEYMGMT *keymgmt);
+
+void *evp_keymgmt_importkey(const EVP_KEYMGMT *keymgmt,
+                            const OSSL_PARAM params[]);
+void *evp_keymgmt_genkey(const EVP_KEYMGMT *keymgmt, void *domparams,
+                         const OSSL_PARAM params[]);
+void *evp_keymgmt_loadkey(const EVP_KEYMGMT *keymgmt,
+                          void *id, size_t idlen);
+void evp_keymgmt_freekey(const EVP_KEYMGMT *keymgmt, void *provkey);
+int evp_keymgmt_exportkey(const EVP_KEYMGMT *keymgmt,
+                               void *provkey, OSSL_PARAM params[]);
+const OSSL_PARAM *evp_keymgmt_importkey_types(const EVP_KEYMGMT *keymgmt);
+const OSSL_PARAM *evp_keymgmt_exportkey_types(const EVP_KEYMGMT *keymgmt);
 
 /* Pulling defines out of C source files */
 

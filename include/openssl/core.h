@@ -43,7 +43,7 @@ struct ossl_dispatch_st {
  * tables remain tables with function pointers only.
  *
  * This is used whenever we need to pass things like a table of error reason
- * codes <-> reason string maps, parameter name <-> parameter type maps, ...
+ * codes <-> reason string maps, ...
  *
  * Usage determines which field works as key if any, rather than field order.
  *
@@ -146,7 +146,7 @@ struct ossl_param_st {
 /*
  * Typedef for the thread stop handling callback. Used both internally and by
  * providers.
- * 
+ *
  * Providers may register for notifications about threads stopping by
  * registering a callback to hear about such events. Providers register the
  * callback using the OSSL_FUNC_CORE_THREAD_START function in the |in| dispatch

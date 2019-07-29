@@ -27,19 +27,31 @@
 #include "internal/provider_ctx.h"
 #include "internal/providercommon.h"
 
+extern OSSL_core_thread_start_fn *c_thread_start;
+
 /*
  * TODO(3.0): Should these be stored in the provider side provctx? Could they
  * ever be different from one init to the next? Unfortunately we can't do this
- * at the moment because c_put_error/c_add_error_vdata do not provide us with
- * the OPENSSL_CTX as a parameter.
+ * at the moment because c_put_error/c_add_error_vdata do not provide
+ * us with the OPENSSL_CTX as a parameter.
  */
 /* Functions provided by the core */
-static OSSL_core_get_param_types_fn *c_get_param_types = NULL;
-static OSSL_core_get_params_fn *c_get_params = NULL;
-extern OSSL_core_thread_start_fn *c_thread_start;
-OSSL_core_thread_start_fn *c_thread_start = NULL;
-static OSSL_core_put_error_fn *c_put_error = NULL;
-static OSSL_core_add_error_vdata_fn *c_add_error_vdata = NULL;
+static OSSL_core_get_param_types_fn *c_get_param_types;
+static OSSL_core_get_params_fn *c_get_params;
+OSSL_core_thread_start_fn *c_thread_start;
+static OSSL_core_put_error_fn *c_put_error;
+static OSSL_core_add_error_vdata_fn *c_add_error_vdata;
+static OSSL_CRYPTO_malloc_fn *c_CRYPTO_malloc;
+static OSSL_CRYPTO_zalloc_fn *c_CRYPTO_zalloc;
+static OSSL_CRYPTO_free_fn *c_CRYPTO_free;
+static OSSL_CRYPTO_clear_free_fn *c_CRYPTO_clear_free;
+static OSSL_CRYPTO_realloc_fn *c_CRYPTO_realloc;
+static OSSL_CRYPTO_clear_realloc_fn *c_CRYPTO_clear_realloc;
+static OSSL_CRYPTO_secure_malloc_fn *c_CRYPTO_secure_malloc;
+static OSSL_CRYPTO_secure_zalloc_fn *c_CRYPTO_secure_zalloc;
+static OSSL_CRYPTO_secure_free_fn *c_CRYPTO_secure_free;
+static OSSL_CRYPTO_secure_clear_free_fn *c_CRYPTO_secure_clear_free;
+static OSSL_CRYPTO_secure_allocated_fn *c_CRYPTO_secure_allocated;
 
 typedef struct fips_global_st {
     const OSSL_PROVIDER *prov;
@@ -64,11 +76,11 @@ static const OPENSSL_CTX_METHOD fips_prov_ossl_ctx_method = {
 
 
 /* Parameters we provide to the core */
-static const OSSL_ITEM fips_param_types[] = {
-    { OSSL_PARAM_UTF8_PTR, OSSL_PROV_PARAM_NAME },
-    { OSSL_PARAM_UTF8_PTR, OSSL_PROV_PARAM_VERSION },
-    { OSSL_PARAM_UTF8_PTR, OSSL_PROV_PARAM_BUILDINFO },
-    { 0, NULL }
+static const OSSL_PARAM fips_param_types[] = {
+    OSSL_PARAM_DEFN(OSSL_PROV_PARAM_NAME, OSSL_PARAM_UTF8_PTR, NULL, 0),
+    OSSL_PARAM_DEFN(OSSL_PROV_PARAM_VERSION, OSSL_PARAM_UTF8_PTR, NULL, 0),
+    OSSL_PARAM_DEFN(OSSL_PROV_PARAM_BUILDINFO, OSSL_PARAM_UTF8_PTR, NULL, 0),
+    OSSL_PARAM_END
 };
 
 /* TODO(3.0): To be removed */
@@ -116,7 +128,7 @@ static int dummy_evp_call(void *provctx)
         || !BN_add(a, a, b)
         || BN_cmp(a, b) != 0)
         goto err;
-    
+
     if (RAND_DRBG_bytes(drbg, randbuf, sizeof(randbuf)) <= 0)
         goto err;
 
@@ -127,13 +139,13 @@ static int dummy_evp_call(void *provctx)
  err:
     BN_CTX_end(bnctx);
     BN_CTX_free(bnctx);
-    
+
     EVP_MD_CTX_free(ctx);
     EVP_MD_meth_free(sha256);
     return ret;
 }
 
-static const OSSL_ITEM *fips_get_param_types(const OSSL_PROVIDER *prov)
+static const OSSL_PARAM *fips_get_param_types(const OSSL_PROVIDER *prov)
 {
     return fips_param_types;
 }
@@ -299,24 +311,54 @@ int OSSL_provider_init(const OSSL_PROVIDER *provider,
         case OSSL_FUNC_CORE_ADD_ERROR_VDATA:
             c_add_error_vdata = OSSL_get_core_add_error_vdata(in);
             break;
-        /* Just ignore anything we don't understand */
+        case OSSL_FUNC_CRYPTO_MALLOC:
+            c_CRYPTO_malloc = OSSL_get_CRYPTO_malloc(in);
+            break;
+        case OSSL_FUNC_CRYPTO_ZALLOC:
+            c_CRYPTO_zalloc = OSSL_get_CRYPTO_zalloc(in);
+            break;
+        case OSSL_FUNC_CRYPTO_FREE:
+            c_CRYPTO_free = OSSL_get_CRYPTO_free(in);
+            break;
+        case OSSL_FUNC_CRYPTO_CLEAR_FREE:
+            c_CRYPTO_clear_free = OSSL_get_CRYPTO_clear_free(in);
+            break;
+        case OSSL_FUNC_CRYPTO_REALLOC:
+            c_CRYPTO_realloc = OSSL_get_CRYPTO_realloc(in);
+            break;
+        case OSSL_FUNC_CRYPTO_CLEAR_REALLOC:
+            c_CRYPTO_clear_realloc = OSSL_get_CRYPTO_clear_realloc(in);
+            break;
+        case OSSL_FUNC_CRYPTO_SECURE_MALLOC:
+            c_CRYPTO_secure_malloc = OSSL_get_CRYPTO_secure_malloc(in);
+            break;
+        case OSSL_FUNC_CRYPTO_SECURE_ZALLOC:
+            c_CRYPTO_secure_zalloc = OSSL_get_CRYPTO_secure_zalloc(in);
+            break;
+        case OSSL_FUNC_CRYPTO_SECURE_FREE:
+            c_CRYPTO_secure_free = OSSL_get_CRYPTO_secure_free(in);
+            break;
+        case OSSL_FUNC_CRYPTO_SECURE_CLEAR_FREE:
+            c_CRYPTO_secure_clear_free = OSSL_get_CRYPTO_secure_clear_free(in);
+            break;
+        case OSSL_FUNC_CRYPTO_SECURE_ALLOCATED:
+            c_CRYPTO_secure_allocated = OSSL_get_CRYPTO_secure_allocated(in);
+            break;
         default:
+            /* Just ignore anything we don't understand */
             break;
         }
     }
 
-    ctx = OPENSSL_CTX_new();
-    if (ctx == NULL)
+    /*  Create a context. */
+    if ((ctx = OPENSSL_CTX_new()) == NULL)
         return 0;
-
-    fgbl = openssl_ctx_get_data(ctx, OPENSSL_CTX_FIPS_PROV_INDEX,
-                                &fips_prov_ossl_ctx_method);
-
-    if (fgbl == NULL)
-        goto err;
-
+    if ((fgbl = openssl_ctx_get_data(ctx, OPENSSL_CTX_FIPS_PROV_INDEX,
+                                     &fips_prov_ossl_ctx_method)) == NULL) {
+        OPENSSL_CTX_free(ctx);
+        return 0;
+    }
     fgbl->prov = provider;
-
     *out = fips_dispatch_table;
     *provctx = ctx;
 
@@ -331,10 +373,6 @@ int OSSL_provider_init(const OSSL_PROVIDER *provider,
     }
 
     return 1;
-
- err:
-    OPENSSL_CTX_free(ctx);
-    return 0;
 }
 
 /*
@@ -412,4 +450,60 @@ const OSSL_PROVIDER *FIPS_get_provider(OPENSSL_CTX *ctx)
         return NULL;
 
     return fgbl->prov;
+}
+
+void *CRYPTO_malloc(size_t num, const char *file, int line)
+{
+    return c_CRYPTO_malloc(num, file, line);
+}
+
+void *CRYPTO_zalloc(size_t num, const char *file, int line)
+{
+    return c_CRYPTO_zalloc(num, file, line);
+}
+
+void CRYPTO_free(void *ptr, const char *file, int line)
+{
+    c_CRYPTO_free(ptr, file, line);
+}
+
+void CRYPTO_clear_free(void *ptr, size_t num, const char *file, int line)
+{
+    c_CRYPTO_clear_free(ptr, num, file, line);
+}
+
+void *CRYPTO_realloc(void *addr, size_t num, const char *file, int line)
+{
+    return c_CRYPTO_realloc(addr, num, file, line);
+}
+
+void *CRYPTO_clear_realloc(void *addr, size_t old_num, size_t num,
+                           const char *file, int line)
+{
+    return c_CRYPTO_clear_realloc(addr, old_num, num, file, line);
+}
+
+void *CRYPTO_secure_malloc(size_t num, const char *file, int line)
+{
+    return c_CRYPTO_secure_malloc(num, file, line);
+}
+
+void *CRYPTO_secure_zalloc(size_t num, const char *file, int line)
+{
+    return c_CRYPTO_secure_zalloc(num, file, line);
+}
+
+void CRYPTO_secure_free(void *ptr, const char *file, int line)
+{
+    c_CRYPTO_secure_free(ptr, file, line);
+}
+
+void CRYPTO_secure_clear_free(void *ptr, size_t num, const char *file, int line)
+{
+    c_CRYPTO_secure_clear_free(ptr, num, file, line);
+}
+
+int CRYPTO_secure_allocated(const void *ptr)
+{
+    return c_CRYPTO_secure_allocated(ptr);
 }

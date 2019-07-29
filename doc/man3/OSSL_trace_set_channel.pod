@@ -1,5 +1,7 @@
 =pod
 
+=for comment foreign manuals: atexit(3)
+
 =head1 NAME
 
 OSSL_trace_set_channel, OSSL_trace_set_prefix, OSSL_trace_set_suffix,
@@ -297,7 +299,7 @@ functions described here are inoperational, i.e. will do nothing.
 
 OSSL_trace_set_channel(), OSSL_trace_set_prefix(),
 OSSL_trace_set_suffix(), and OSSL_trace_set_callback() were all added
-in OpenSSL 3.0.0.
+in OpenSSL 3.0.
 
 =head1 COPYRIGHT
 

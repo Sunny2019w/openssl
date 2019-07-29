@@ -278,10 +278,11 @@ L<EVP_KDF_HKDF(7)>
 L<EVP_KDF_SS(7)>
 L<EVP_KDF_SSHKDF(7)>
 L<EVP_KDF_X963(7)>
+L<EVP_KDF_X942(7)>
 
 =head1 HISTORY
 
-This functionality was added to OpenSSL 3.0.0.
+This functionality was added to OpenSSL 3.0.
 
 =head1 COPYRIGHT
 

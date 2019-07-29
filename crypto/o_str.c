@@ -184,9 +184,7 @@ char *OPENSSL_buf2hexstr(const unsigned char *buffer, long len)
     int i;
 
     if (len == 0)
-    {
         return OPENSSL_zalloc(1);
-    }
 
     if ((tmp = OPENSSL_malloc(len * 3)) == NULL) {
         CRYPTOerr(CRYPTO_F_OPENSSL_BUF2HEXSTR, ERR_R_MALLOC_FAILURE);

@@ -877,7 +877,7 @@ int SSL_up_ref(SSL *s)
 int SSL_CTX_set_session_id_context(SSL_CTX *ctx, const unsigned char *sid_ctx,
                                    unsigned int sid_ctx_len)
 {
-    if (sid_ctx_len > sizeof(ctx->sid_ctx)) {
+    if (sid_ctx_len > SSL_MAX_SID_CTX_LENGTH) {
         SSLerr(SSL_F_SSL_CTX_SET_SESSION_ID_CONTEXT,
                SSL_R_SSL_SESSION_ID_CONTEXT_TOO_LONG);
         return 0;
@@ -2075,7 +2075,7 @@ ossl_ssize_t SSL_sendfile(SSL *s, int fd, off_t offset, size_t size, int flags)
         else
 #endif
 #ifdef OPENSSL_NO_KTLS
-            SYSerr(SYS_F_SENDFILE, get_last_sys_error());
+            FUNCerr("sendfile", get_last_sys_error());
 #else
             SSLerr(SSL_F_SSL_SENDFILE, SSL_R_UNINITIALIZED);
 #endif

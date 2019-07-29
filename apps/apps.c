@@ -40,12 +40,19 @@
 #endif
 #include <openssl/bn.h>
 #include <openssl/ssl.h>
-#include "s_apps.h"
 #include "apps.h"
 
 #ifdef _WIN32
 static int WIN32_rename(const char *from, const char *to);
 # define rename(from,to) WIN32_rename((from),(to))
+#endif
+
+#if defined(OPENSSL_SYS_WINDOWS) || defined(OPENSSL_SYS_MSDOS)
+# include <conio.h>
+#endif
+
+#if defined(OPENSSL_SYS_MSDOS) && !defined(_WIN32)
+# define _kbhit kbhit
 #endif
 
 #define PASS_SOURCE_SIZE_MAX 4
@@ -1388,8 +1395,8 @@ CA_DB *load_index(const char *dbfile, DB_ATTR *db_attr)
 #ifndef OPENSSL_NO_POSIX_IO
     BIO_get_fp(in, &dbfp);
     if (fstat(fileno(dbfp), &dbst) == -1) {
-        SYSerr(SYS_F_FSTAT, errno);
-        ERR_add_error_data(3, "fstat('", dbfile, "')");
+        FUNCerr("fstat", errno);
+        ERR_add_error_data(1, dbfile);
         ERR_print_errors(bio_err);
         goto err;
     }

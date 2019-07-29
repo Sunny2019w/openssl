@@ -65,7 +65,7 @@ extern "C" {
 DECLARE_ASN1_ITEM(DHparams)
 
 # define DH_GENERATOR_2          2
-/* #define DH_GENERATOR_3       3 */
+# define DH_GENERATOR_3          3
 # define DH_GENERATOR_5          5
 
 /* DH_check error codes */
@@ -253,9 +253,7 @@ int DH_meth_set_generate_params(DH_METHOD *dhm,
                         EVP_PKEY_OP_PARAMGEN | EVP_PKEY_OP_KEYGEN, \
                         EVP_PKEY_CTRL_DH_NID, nid, NULL)
 
-# define EVP_PKEY_CTX_set_dh_pad(ctx, pad) \
-        EVP_PKEY_CTX_ctrl(ctx, EVP_PKEY_DH, EVP_PKEY_OP_DERIVE, \
-                          EVP_PKEY_CTRL_DH_PAD, pad, NULL)
+int EVP_PKEY_CTX_set_dh_pad(EVP_PKEY_CTX *ctx, int pad);
 
 # define EVP_PKEY_CTX_set_dh_kdf_type(ctx, kdf) \
         EVP_PKEY_CTX_ctrl(ctx, EVP_PKEY_DHX, \

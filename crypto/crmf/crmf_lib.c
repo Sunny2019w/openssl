@@ -200,10 +200,7 @@ OSSL_CRMF_CERTID *OSSL_CRMF_CERTID_gen(const X509_NAME *issuer,
  /*
   * id-regCtrl-protocolEncrKey Control (section 6.6)
   *
-  * For some reason X509_PUBKEY_dup() is not implemented in OpenSSL X509
-  * TODO: check whether that should go elsewhere
   */
-static IMPLEMENT_ASN1_DUP_FUNCTION(X509_PUBKEY)
 IMPLEMENT_CRMF_CTRL_FUNC(protocolEncrKey, X509_PUBKEY, regCtrl)
 
 /*-
@@ -299,20 +296,20 @@ int OSSL_CRMF_MSG_set_certReqId(OSSL_CRMF_MSG *crm, int rid)
 }
 
 /* get ASN.1 encoded integer, return -1 on error */
-static int crmf_asn1_get_int(int func, const ASN1_INTEGER *a)
+static int crmf_asn1_get_int(const ASN1_INTEGER *a)
 {
     int64_t res;
 
     if (!ASN1_INTEGER_get_int64(&res, a)) {
-        CRMFerr(func, ASN1_R_INVALID_NUMBER);
+        CRMFerr(0, ASN1_R_INVALID_NUMBER);
         return -1;
     }
     if (res < INT_MIN) {
-        CRMFerr(func, ASN1_R_TOO_SMALL);
+        CRMFerr(0, ASN1_R_TOO_SMALL);
         return -1;
     }
     if (res > INT_MAX) {
-        CRMFerr(func, ASN1_R_TOO_LARGE);
+        CRMFerr(0, ASN1_R_TOO_LARGE);
         return -1;
     }
     return (int)res;
@@ -324,8 +321,7 @@ int OSSL_CRMF_MSG_get_certReqId(OSSL_CRMF_MSG *crm)
         CRMFerr(CRMF_F_OSSL_CRMF_MSG_GET_CERTREQID, CRMF_R_NULL_ARGUMENT);
         return -1;
     }
-    return crmf_asn1_get_int(CRMF_F_OSSL_CRMF_MSG_GET_CERTREQID,
-                             crm->certReq->certReqId);
+    return crmf_asn1_get_int(crm->certReq->certReqId);
 }
 
 

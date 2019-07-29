@@ -36,7 +36,6 @@ typedef struct evp_test_st {
     const EVP_TEST_METHOD *meth;  /* method for this test */
     const char *err, *aux_err;    /* Error string for test */
     char *expected_err;           /* Expected error value of test */
-    char *func;                   /* Expected error function string */
     char *reason;                 /* Expected error reason string */
     void *data;                   /* test specific data */
 } EVP_TEST;
@@ -75,9 +74,6 @@ static KEY_LIST *public_keys;
 static int find_key(EVP_PKEY **ppk, const char *name, KEY_LIST *lst);
 
 static int parse_bin(const char *value, unsigned char **buf, size_t *buflen);
-
-static OSSL_PROVIDER *defltprov = NULL;
-static OSSL_PROVIDER *legacyprov = NULL;
 
 /*
  * Compare two memory regions for equality, returning zero if they differ.
@@ -374,11 +370,6 @@ static int digest_test_parse(EVP_TEST *t,
         return evp_test_buffer_set_count(value, mdata->input);
     if (strcmp(keyword, "Ncopy") == 0)
         return evp_test_buffer_ncopy(value, mdata->input);
-    if (strcmp(keyword, "Legacy") == 0) {
-        if (legacyprov == NULL)
-            t->skip = 1;
-        return 1;
-    }
     return 0;
 }
 
@@ -659,6 +650,14 @@ static int cipher_test_enc(EVP_TEST *t, int enc,
     }
     if (!EVP_CipherInit_ex(ctx, NULL, NULL, expected->key, expected->iv, -1)) {
         t->err = "KEY_SET_ERROR";
+        goto err;
+    }
+    /* Check that we get the same IV back */
+    if (expected->iv != NULL
+        && (EVP_CIPHER_flags(expected->cipher) & EVP_CIPH_CUSTOM_IV) == 0
+        && !TEST_mem_eq(expected->iv, expected->iv_len,
+                        EVP_CIPHER_CTX_iv(ctx), expected->iv_len)) {
+        t->err = "INVALID_IV";
         goto err;
     }
 
@@ -1965,7 +1964,14 @@ static int kdf_test_init(EVP_TEST *t, const char *name)
         t->skip = 1;
         return 1;
     }
-#endif
+#endif /* OPENSSL_NO_SCRYPT */
+
+#ifdef OPENSSL_NO_CMS
+    if (strcmp(name, "X942KDF") == 0) {
+        t->skip = 1;
+        return 1;
+    }
+#endif /* OPENSSL_NO_CMS */
 
     kdf = EVP_get_kdfbyname(name);
     if (kdf == NULL)
@@ -2097,7 +2103,14 @@ static int pkey_kdf_test_init(EVP_TEST *t, const char *name)
         t->skip = 1;
         return 1;
     }
-#endif
+#endif /* OPENSSL_NO_SCRYPT */
+
+#ifdef OPENSSL_NO_CMS
+    if (strcmp(name, "X942KDF") == 0) {
+        t->skip = 1;
+        return 1;
+    }
+#endif /* OPENSSL_NO_CMS */
 
     if (kdf_nid == NID_undef)
         kdf_nid = OBJ_ln2nid(name);
@@ -2713,8 +2726,6 @@ static void clear_test(EVP_TEST *t)
     }
     OPENSSL_free(t->expected_err);
     t->expected_err = NULL;
-    OPENSSL_free(t->func);
-    t->func = NULL;
     OPENSSL_free(t->reason);
     t->reason = NULL;
 
@@ -2757,10 +2768,10 @@ static int check_test_error(EVP_TEST *t)
         return 0;
     }
 
-    if (t->func == NULL && t->reason == NULL)
+    if (t->reason == NULL)
         return 1;
 
-    if (t->func == NULL || t->reason == NULL) {
+    if (t->reason == NULL) {
         TEST_info("%s:%d: Test is missing function or reason code",
                   t->s.test_file, t->s.start);
         return 0;
@@ -2768,25 +2779,25 @@ static int check_test_error(EVP_TEST *t)
 
     err = ERR_peek_error();
     if (err == 0) {
-        TEST_info("%s:%d: Expected error \"%s:%s\" not set",
-                  t->s.test_file, t->s.start, t->func, t->reason);
+        TEST_info("%s:%d: Expected error \"%s\" not set",
+                  t->s.test_file, t->s.start, t->reason);
         return 0;
     }
 
     func = ERR_func_error_string(err);
     reason = ERR_reason_error_string(err);
     if (func == NULL && reason == NULL) {
-        TEST_info("%s:%d: Expected error \"%s:%s\", no strings available."
+        TEST_info("%s:%d: Expected error \"%s\", no strings available."
                   " Assuming ok.",
-                  t->s.test_file, t->s.start, t->func, t->reason);
+                  t->s.test_file, t->s.start, t->reason);
         return 1;
     }
 
-    if (strcmp(func, t->func) == 0 && strcmp(reason, t->reason) == 0)
+    if (strcmp(reason, t->reason) == 0)
         return 1;
 
-    TEST_info("%s:%d: Expected error \"%s:%s\", got \"%s:%s\"",
-              t->s.test_file, t->s.start, t->func, t->reason, func, reason);
+    TEST_info("%s:%d: Expected error \"%s\", got \"%s\"",
+              t->s.test_file, t->s.start, t->reason, reason);
 
     return 0;
 }
@@ -2878,6 +2889,33 @@ static char *take_value(PAIR *pp)
 
     pp->value = NULL;
     return p;
+}
+
+/*
+ * Return 1 if one of the providers named in the string is available.
+ * The provider names are separated with whitespace.
+ * NOTE: destructive function, it inserts '\0' after each provider name.
+ */
+static int prov_available(char *providers)
+{
+    char *p;
+    int more = 1;
+
+    while (more) {
+        for (; isspace(*providers); providers++)
+            continue;
+        if (*providers == '\0')
+            break;               /* End of the road */
+        for (p = providers; *p != '\0' && !isspace(*p); p++)
+            continue;
+        if (*p == '\0')
+            more = 0;
+        else
+            *p = '\0';
+        if (OSSL_PROVIDER_available(NULL, providers))
+            return 1;            /* Found one */
+    }
+    return 0;
 }
 
 /*
@@ -3010,6 +3048,14 @@ top:
     }
 
     for (pp++, i = 1; i < t->s.numpairs; pp++, i++) {
+        if (strcmp(pp->key, "Availablein") == 0) {
+            if (!prov_available(pp->value)) {
+                TEST_info("skipping, providers not available: %s:%d",
+                          t->s.test_file, t->s.start);
+                t->skip = 1;
+                return 0;
+            }
+        }
         if (strcmp(pp->key, "Result") == 0) {
             if (t->expected_err != NULL) {
                 TEST_info("Line %d: multiple result lines", t->s.curr);
@@ -3017,11 +3063,7 @@ top:
             }
             t->expected_err = take_value(pp);
         } else if (strcmp(pp->key, "Function") == 0) {
-            if (t->func != NULL) {
-                TEST_info("Line %d: multiple function lines\n", t->s.curr);
-                return 0;
-            }
-            t->func = take_value(pp);
+            /* Ignore old line. */
         } else if (strcmp(pp->key, "Reason") == 0) {
             if (t->reason != NULL) {
                 TEST_info("Line %d: multiple reason lines", t->s.curr);
@@ -3091,23 +3133,6 @@ int setup_tests(void)
     if (n == 0)
         return 0;
 
-    defltprov = OSSL_PROVIDER_load(NULL, "default");
-    if (!TEST_ptr(defltprov))
-        return 0;
-#ifndef NO_LEGACY_MODULE
-    legacyprov = OSSL_PROVIDER_load(NULL, "legacy");
-    if (!TEST_ptr(legacyprov)) {
-        OSSL_PROVIDER_unload(defltprov);
-        return 0;
-    }
-#endif /* NO_LEGACY_MODULE */
-
     ADD_ALL_TESTS(run_file_tests, n);
     return 1;
-}
-
-void cleanup_tests(void)
-{
-    OSSL_PROVIDER_unload(legacyprov);
-    OSSL_PROVIDER_unload(defltprov);
 }

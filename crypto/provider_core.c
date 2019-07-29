@@ -572,65 +572,77 @@ static int provider_forall_loaded(struct provider_store_st *store,
     return ret;
 }
 
+/*
+ * This function only does something once when store->use_fallbacks == 1,
+ * and then sets store->use_fallbacks = 0, so the second call and so on is
+ * effectively a no-op.
+ */
+static void provider_activate_fallbacks(struct provider_store_st *store)
+{
+    if (store->use_fallbacks) {
+        int num_provs = sk_OSSL_PROVIDER_num(store->providers);
+        int activated_fallback_count = 0;
+        int i;
+
+        for (i = 0; i < num_provs; i++) {
+            OSSL_PROVIDER *prov = sk_OSSL_PROVIDER_value(store->providers, i);
+
+            /*
+             * Note that we don't care if the activation succeeds or not.
+             * If it doesn't succeed, then any attempt to use any of the
+             * fallback providers will fail anyway.
+             */
+            if (prov->flag_fallback) {
+                activated_fallback_count++;
+                provider_activate(prov);
+            }
+        }
+
+        /*
+         * We assume that all fallbacks have been added to the store before
+         * any fallback is activated.
+         * TODO: We may have to reconsider this, IF we find ourselves adding
+         * fallbacks after any previous fallback has been activated.
+         */
+        if (activated_fallback_count > 0)
+            store->use_fallbacks = 0;
+    }
+}
+
 int ossl_provider_forall_loaded(OPENSSL_CTX *ctx,
                                 int (*cb)(OSSL_PROVIDER *provider,
                                           void *cbdata),
                                 void *cbdata)
 {
     int ret = 1;
-    int i;
     struct provider_store_st *store = get_provider_store(ctx);
 
     if (store != NULL) {
-        int found_activated = 0;
-
         CRYPTO_THREAD_read_lock(store->lock);
-        ret = provider_forall_loaded(store, &found_activated, cb, cbdata);
+
+        provider_activate_fallbacks(store);
 
         /*
-         * If there's nothing activated ever in this store, try to activate
-         * all fallbacks.
+         * Now, we sweep through all providers
          */
-        if (!found_activated && store->use_fallbacks) {
-            int num_provs = sk_OSSL_PROVIDER_num(store->providers);
-            int activated_fallback_count = 0;
+        ret = provider_forall_loaded(store, NULL, cb, cbdata);
 
-            for (i = 0; i < num_provs; i++) {
-                OSSL_PROVIDER *prov =
-                    sk_OSSL_PROVIDER_value(store->providers, i);
-
-                /*
-                 * Note that we don't care if the activation succeeds or
-                 * not.  If it doesn't succeed, then the next loop will
-                 * fail anyway.
-                 */
-                if (prov->flag_fallback) {
-                    activated_fallback_count++;
-                    provider_activate(prov);
-                }
-            }
-
-            if (activated_fallback_count > 0) {
-                /*
-                 * We assume that all fallbacks have been added to the store
-                 * before any fallback is activated.
-                 * TODO: We may have to reconsider this, IF we find ourselves
-                 * adding fallbacks after any previous fallback has been
-                 * activated.
-                 */
-                store->use_fallbacks = 0;
-
-                /*
-                 * Now that we've activated available fallbacks, try a
-                 * second sweep
-                 */
-                ret = provider_forall_loaded(store, NULL, cb, cbdata);
-            }
-        }
         CRYPTO_THREAD_unlock(store->lock);
     }
 
     return ret;
+}
+
+int ossl_provider_available(OSSL_PROVIDER *prov)
+{
+    if (prov != NULL) {
+        CRYPTO_THREAD_read_lock(prov->store->lock);
+        provider_activate_fallbacks(prov->store);
+        CRYPTO_THREAD_unlock(prov->store->lock);
+
+        return prov->flag_initialized;
+    }
+    return 0;
 }
 
 /* Setters of Provider Object data */
@@ -680,7 +692,7 @@ void ossl_provider_teardown(const OSSL_PROVIDER *prov)
         prov->teardown(prov->provctx);
 }
 
-const OSSL_ITEM *ossl_provider_get_param_types(const OSSL_PROVIDER *prov)
+const OSSL_PARAM *ossl_provider_get_param_types(const OSSL_PROVIDER *prov)
 {
     return prov->get_param_types == NULL
         ? NULL : prov->get_param_types(prov->provctx);
@@ -712,13 +724,13 @@ const OSSL_ALGORITHM *ossl_provider_query_operation(const OSSL_PROVIDER *prov,
  * discovery.  We do not expect that many providers will use this, but one
  * never knows.
  */
-static const OSSL_ITEM param_types[] = {
-    { OSSL_PARAM_UTF8_PTR, "openssl-version" },
-    { OSSL_PARAM_UTF8_PTR, "provider-name" },
-    { 0, NULL }
+static const OSSL_PARAM param_types[] = {
+    OSSL_PARAM_DEFN("openssl-verstion", OSSL_PARAM_UTF8_PTR, NULL, 0),
+    OSSL_PARAM_DEFN("provider-name", OSSL_PARAM_UTF8_PTR, NULL, 0),
+    OSSL_PARAM_END
 };
 
-static const OSSL_ITEM *core_get_param_types(const OSSL_PROVIDER *prov)
+static const OSSL_PARAM *core_get_param_types(const OSSL_PROVIDER *prov)
 {
     return param_types;
 }
@@ -796,6 +808,10 @@ static void core_add_error_vdata(const OSSL_PROVIDER *prov,
 }
 #endif
 
+/*
+ * Functions provided by the core.  Blank line separates "families" of related
+ * functions.
+ */
 static const OSSL_DISPATCH core_dispatch_[] = {
     { OSSL_FUNC_CORE_GET_PARAM_TYPES, (void (*)(void))core_get_param_types },
     { OSSL_FUNC_CORE_GET_PARAMS, (void (*)(void))core_get_params },
@@ -805,6 +821,22 @@ static const OSSL_DISPATCH core_dispatch_[] = {
     { OSSL_FUNC_CORE_PUT_ERROR, (void (*)(void))core_put_error },
     { OSSL_FUNC_CORE_ADD_ERROR_VDATA, (void (*)(void))core_add_error_vdata },
 #endif
+
+    { OSSL_FUNC_CRYPTO_MALLOC, (void (*)(void))CRYPTO_malloc },
+    { OSSL_FUNC_CRYPTO_ZALLOC, (void (*)(void))CRYPTO_zalloc },
+    { OSSL_FUNC_CRYPTO_FREE, (void (*)(void))CRYPTO_free },
+    { OSSL_FUNC_CRYPTO_CLEAR_FREE, (void (*)(void))CRYPTO_clear_free },
+    { OSSL_FUNC_CRYPTO_REALLOC, (void (*)(void))CRYPTO_realloc },
+    { OSSL_FUNC_CRYPTO_CLEAR_REALLOC, (void (*)(void))CRYPTO_clear_realloc },
+    { OSSL_FUNC_CRYPTO_SECURE_MALLOC, (void (*)(void))CRYPTO_secure_malloc },
+    { OSSL_FUNC_CRYPTO_SECURE_ZALLOC, (void (*)(void))CRYPTO_secure_zalloc },
+    { OSSL_FUNC_CRYPTO_SECURE_FREE, (void (*)(void))CRYPTO_secure_free },
+    { OSSL_FUNC_CRYPTO_SECURE_CLEAR_FREE,
+        (void (*)(void))CRYPTO_secure_clear_free },
+    { OSSL_FUNC_CRYPTO_SECURE_ALLOCATED,
+        (void (*)(void))CRYPTO_secure_allocated },
+    { OSSL_FUNC_OPENSSL_CLEANSE, (void (*)(void))OPENSSL_cleanse },
+
     { 0, NULL }
 };
 static const OSSL_DISPATCH *core_dispatch = core_dispatch_;
