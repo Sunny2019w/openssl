@@ -29,6 +29,8 @@ EVP_get_cipherbyobj,
 EVP_CIPHER_name,
 EVP_CIPHER_provider,
 EVP_CIPHER_nid,
+EVP_CIPHER_get_params,
+EVP_CIPHER_gettable_params,
 EVP_CIPHER_block_size,
 EVP_CIPHER_key_length,
 EVP_CIPHER_iv_length,
@@ -38,6 +40,10 @@ EVP_CIPHER_type,
 EVP_CIPHER_CTX_cipher,
 EVP_CIPHER_CTX_name,
 EVP_CIPHER_CTX_nid,
+EVP_CIPHER_CTX_get_params,
+EVP_CIPHER_CTX_gettable_params,
+EVP_CIPHER_CTX_set_params,
+EVP_CIPHER_CTX_settable_params,
 EVP_CIPHER_CTX_block_size,
 EVP_CIPHER_CTX_key_length,
 EVP_CIPHER_CTX_iv_length,
@@ -117,6 +123,13 @@ EVP_CIPHER_do_all_ex
  const EVP_CIPHER *EVP_CIPHER_CTX_cipher(const EVP_CIPHER_CTX *ctx);
  int EVP_CIPHER_CTX_nid(const EVP_CIPHER_CTX *ctx);
  const char *EVP_CIPHER_CTX_name(const EVP_CIPHER_CTX *ctx);
+
+ int EVP_CIPHER_get_params(EVP_CIPHER *cipher, OSSL_PARAM params[]);
+ int EVP_CIPHER_CTX_set_params(EVP_CIPHER_CTX *ctx, const OSSL_PARAM params[]);
+ int EVP_CIPHER_CTX_get_params(EVP_CIPHER_CTX *ctx, OSSL_PARAM params[]);
+ const OSSL_PARAM *EVP_CIPHER_gettable_params(const EVP_CIPHER *cipher);
+ const OSSL_PARAM *EVP_CIPHER_CTX_settable_params(const EVP_CIPHER *cipher);
+ const OSSL_PARAM *EVP_CIPHER_CTX_gettable_params(const EVP_CIPHER *cipher);
  int EVP_CIPHER_CTX_block_size(const EVP_CIPHER_CTX *ctx);
  int EVP_CIPHER_CTX_key_length(const EVP_CIPHER_CTX *ctx);
  int EVP_CIPHER_CTX_iv_length(const EVP_CIPHER_CTX *ctx);
@@ -165,6 +178,8 @@ all parameters to NULL except B<type> in an initial call and supply
 the remaining parameters in subsequent calls, all of which have B<type>
 set to NULL. This is done when the default cipher parameters are not
 appropriate.
+For EVP_CIPH_GCM_MODE the IV will be generated internally if it is not
+specified.
 
 EVP_EncryptUpdate() encrypts B<inl> bytes from the buffer B<in> and
 writes the encrypted version to B<out>. This function can be called
@@ -238,6 +253,22 @@ decrypting. If the B<pad> parameter is zero then no padding is
 performed, the total amount of data encrypted or decrypted must then
 be a multiple of the block size or an error will occur.
 
+EVP_CIPHER_get_params() retrieves the requested list of algorithm
+B<params> from a B<cipher>.
+
+EVP_CIPHER_CTX_set_params() Sets the list of operation B<params> into a CIPHER
+context B<ctx>.
+
+EVP_CIPHER_CTX_get_params() retrieves the requested list of operation
+B<params> from CIPHER context B<ctx>.
+
+EVP_CIPHER_gettable_params(), EVP_CIPHER_CTX_gettable_params(), and
+EVP_CIPHER_CTX_settable_params() get a constant B<OSSL_PARAM> array
+that decribes the retrievable and settable parameters, i.e. parameters
+that can be used with EVP_CIPHER_get_params(), EVP_CIPHER_CTX_get_params()
+and EVP_CIPHER_CTX_set_params(), respectively.
+See L<OSSL_PARAM(3)> for the use of B<OSSL_PARAM> as parameter descriptor.
+
 EVP_CIPHER_key_length() and EVP_CIPHER_CTX_key_length() return the key
 length of a cipher when passed an B<EVP_CIPHER> or B<EVP_CIPHER_CTX>
 structure. The constant B<EVP_MAX_KEY_LENGTH> is the maximum key length
@@ -278,8 +309,11 @@ an B<EVP_CIPHER_CTX> structure.
 EVP_CIPHER_mode() and EVP_CIPHER_CTX_mode() return the block cipher mode:
 EVP_CIPH_ECB_MODE, EVP_CIPH_CBC_MODE, EVP_CIPH_CFB_MODE, EVP_CIPH_OFB_MODE,
 EVP_CIPH_CTR_MODE, EVP_CIPH_GCM_MODE, EVP_CIPH_CCM_MODE, EVP_CIPH_XTS_MODE,
-EVP_CIPH_WRAP_MODE or EVP_CIPH_OCB_MODE. If the cipher is a stream cipher then
-EVP_CIPH_STREAM_CIPHER is returned.
+EVP_CIPH_WRAP_MODE, EVP_CIPH_OCB_MODE or EVP_CIPH_SIV_MODE. If the cipher is a
+stream cipher then EVP_CIPH_STREAM_CIPHER is returned.
+
+EVP_CIPHER_flags() returns any flags associated with the cipher. See
+EVP_CIPHER_meth_set_flags() for a list of currently defined flags.
 
 EVP_CIPHER_param_to_asn1() sets the AlgorithmIdentifier "parameter" based
 on the passed cipher. This will typically include any parameters and an

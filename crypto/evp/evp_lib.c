@@ -224,7 +224,7 @@ int EVP_CIPHER_block_size(const EVP_CIPHER *cipher)
     params[0] = OSSL_PARAM_construct_int(OSSL_CIPHER_PARAM_BLOCK_SIZE, &v);
     ok = evp_do_ciph_getparams(cipher, params);
 
-    return ok != 0 ? v : -1;
+    return ok != 0 ? v : EVP_CTRL_RET_UNSUPPORTED;
 }
 
 int EVP_CIPHER_CTX_block_size(const EVP_CIPHER_CTX *ctx)
@@ -310,12 +310,27 @@ int EVP_CIPHER_iv_length(const EVP_CIPHER *cipher)
     params[0] = OSSL_PARAM_construct_int(OSSL_CIPHER_PARAM_IVLEN, &v);
     ok = evp_do_ciph_getparams(cipher, params);
 
-    return ok != 0 ? v : -1;
+    return ok != 0 ? v : EVP_CTRL_RET_UNSUPPORTED;
 }
 
 int EVP_CIPHER_CTX_iv_length(const EVP_CIPHER_CTX *ctx)
 {
-    return EVP_CIPHER_iv_length(ctx->cipher);
+    int len, rv, v = EVP_CIPHER_iv_length(ctx->cipher);
+    OSSL_PARAM params[2] = { OSSL_PARAM_END, OSSL_PARAM_END };
+
+    params[0] = OSSL_PARAM_construct_int(OSSL_CIPHER_PARAM_IVLEN, &v);
+    rv = evp_do_ciph_ctx_getparams(ctx->cipher, ctx->provctx, params);
+    if (rv == EVP_CTRL_RET_UNSUPPORTED)
+        goto legacy;
+    return rv != 0 ? v : -1;
+    /* TODO (3.0) Remove legacy support */
+legacy:
+    if ((EVP_CIPHER_flags(ctx->cipher) & EVP_CIPH_CUSTOM_IV_LENGTH) != 0) {
+        rv = EVP_CIPHER_CTX_ctrl((EVP_CIPHER_CTX *)ctx, EVP_CTRL_GET_IVLEN,
+                                 0, &len);
+        return (rv == 1) ? len : -1;
+    }
+    return v;
 }
 
 const unsigned char *EVP_CIPHER_CTX_original_iv(const EVP_CIPHER_CTX *ctx)
@@ -367,7 +382,7 @@ int EVP_CIPHER_CTX_num(const EVP_CIPHER_CTX *ctx)
     params[0] = OSSL_PARAM_construct_int(OSSL_CIPHER_PARAM_NUM, &v);
     ok = evp_do_ciph_ctx_getparams(ctx->cipher, ctx->provctx, params);
 
-    return ok != 0 ? v : -1;
+    return ok != 0 ? v : EVP_CTRL_RET_UNSUPPORTED;
 }
 
 int EVP_CIPHER_CTX_set_num(EVP_CIPHER_CTX *ctx, int num)
@@ -391,7 +406,7 @@ int EVP_CIPHER_key_length(const EVP_CIPHER *cipher)
     params[0] = OSSL_PARAM_construct_int(OSSL_CIPHER_PARAM_KEYLEN, &v);
     ok = evp_do_ciph_getparams(cipher, params);
 
-    return ok != 0 ? v : -1;
+    return ok != 0 ? v : EVP_CTRL_RET_UNSUPPORTED;
 }
 
 int EVP_CIPHER_CTX_key_length(const EVP_CIPHER_CTX *ctx)
@@ -402,7 +417,7 @@ int EVP_CIPHER_CTX_key_length(const EVP_CIPHER_CTX *ctx)
     params[0] = OSSL_PARAM_construct_int(OSSL_CIPHER_PARAM_KEYLEN, &v);
     ok = evp_do_ciph_ctx_getparams(ctx->cipher, ctx->provctx, params);
 
-    return ok != 0 ? v : -1;
+    return ok != 0 ? v : EVP_CTRL_RET_UNSUPPORTED;
 }
 
 int EVP_CIPHER_nid(const EVP_CIPHER *cipher)
@@ -460,15 +475,18 @@ const OSSL_PROVIDER *EVP_MD_provider(const EVP_MD *md)
 
 int EVP_MD_block_size(const EVP_MD *md)
 {
+    int ok, v = md->block_size;
+    OSSL_PARAM params[2] = { OSSL_PARAM_END, OSSL_PARAM_END };
+
     if (md == NULL) {
         EVPerr(EVP_F_EVP_MD_BLOCK_SIZE, EVP_R_MESSAGE_DIGEST_IS_NULL);
         return -1;
     }
 
-    if (md->prov != NULL && md->dblock_size != NULL)
-        return (int)md->dblock_size();
+    params[0] = OSSL_PARAM_construct_int(OSSL_DIGEST_PARAM_BLOCK_SIZE, &v);
+    ok = evp_do_md_getparams(md, params);
 
-    return md->block_size;
+    return ok != 0 ? v : -1;
 }
 
 int EVP_MD_type(const EVP_MD *md)
@@ -483,20 +501,30 @@ int EVP_MD_pkey_type(const EVP_MD *md)
 
 int EVP_MD_size(const EVP_MD *md)
 {
-    if (!md) {
+    int ok, v = md->md_size;
+    OSSL_PARAM params[2] = { OSSL_PARAM_END, OSSL_PARAM_END };
+
+    if (md == NULL) {
         EVPerr(EVP_F_EVP_MD_SIZE, EVP_R_MESSAGE_DIGEST_IS_NULL);
         return -1;
     }
 
-    if (md->prov != NULL && md->size != NULL)
-        return (int)md->size();
+    params[0] = OSSL_PARAM_construct_int(OSSL_DIGEST_PARAM_SIZE, &v);
+    ok = evp_do_md_getparams(md, params);
 
-    return md->md_size;
+    return ok != 0 ? v : -1;
 }
 
 unsigned long EVP_MD_flags(const EVP_MD *md)
 {
-    return md->flags;
+    int ok;
+    unsigned long v = md->flags;
+    OSSL_PARAM params[2] = { OSSL_PARAM_END, OSSL_PARAM_END };
+
+    params[0] = OSSL_PARAM_construct_ulong(OSSL_CIPHER_PARAM_FLAGS, &v);
+    ok = evp_do_md_getparams(md, params);
+
+    return ok != 0 ? v : 0;
 }
 
 EVP_MD *EVP_MD_meth_new(int md_type, int pkey_type)

@@ -14,6 +14,7 @@
 
 # include <openssl/opensslconf.h>
 # include <openssl/ossl_typ.h>
+# include <openssl/core.h>
 # include <openssl/symhacks.h>
 # include <openssl/bio.h>
 # include <openssl/evperr.h>
@@ -268,6 +269,8 @@ int (*EVP_CIPHER_meth_get_ctrl(const EVP_CIPHER *cipher))(EVP_CIPHER_CTX *,
 # define         EVP_CIPH_RAND_KEY               0x200
 /* cipher has its own additional copying logic */
 # define         EVP_CIPH_CUSTOM_COPY            0x400
+/* Don't use standard iv length function */
+# define         EVP_CIPH_CUSTOM_IV_LENGTH       0x800
 /* Allow use default ASN1 get/set iv */
 # define         EVP_CIPH_FLAG_DEFAULT_ASN1      0x1000
 /* Buffer length in bits not bytes: CFB1 mode only */
@@ -356,10 +359,12 @@ int (*EVP_CIPHER_meth_get_ctrl(const EVP_CIPHER *cipher))(EVP_CIPHER_CTX *,
 # define         EVP_CTRL_SET_PIPELINE_INPUT_BUFS        0x23
 /* Set the input buffer lengths to use for a pipelined operation */
 # define         EVP_CTRL_SET_PIPELINE_INPUT_LENS        0x24
+/* Get the IV length used by the cipher */
+# define         EVP_CTRL_GET_IVLEN                      0x25
 /* Get the IV used by the cipher */
-# define         EVP_CTRL_GET_IV                         0x25
+# define         EVP_CTRL_GET_IV                         0x26
 /* Tell the cipher it's doing a speed test (SIV disallows multiple ops) */
-# define         EVP_CTRL_SET_SPEED                      0x26
+# define         EVP_CTRL_SET_SPEED                      0x27
 
 /* Padding modes */
 #define EVP_PADDING_PKCS7       1
@@ -544,8 +549,12 @@ void BIO_set_md(BIO *, const EVP_MD *md);
 # define EVP_delete_digest_alias(alias) \
         OBJ_NAME_remove(alias,OBJ_NAME_TYPE_MD_METH|OBJ_NAME_ALIAS);
 
+int EVP_MD_get_params(const EVP_MD *digest, OSSL_PARAM params[]);
 int EVP_MD_CTX_set_params(EVP_MD_CTX *ctx, const OSSL_PARAM params[]);
 int EVP_MD_CTX_get_params(EVP_MD_CTX *ctx, OSSL_PARAM params[]);
+const OSSL_PARAM *EVP_MD_gettable_params(const EVP_MD *digest);
+const OSSL_PARAM *EVP_MD_CTX_settable_params(const EVP_MD *digest);
+const OSSL_PARAM *EVP_MD_CTX_gettable_params(const EVP_MD *digest);
 int EVP_MD_CTX_ctrl(EVP_MD_CTX *ctx, int cmd, int p1, void *p2);
 EVP_MD_CTX *EVP_MD_CTX_new(void);
 int EVP_MD_CTX_reset(EVP_MD_CTX *ctx);
@@ -698,6 +707,12 @@ int EVP_CIPHER_CTX_set_key_length(EVP_CIPHER_CTX *x, int keylen);
 int EVP_CIPHER_CTX_set_padding(EVP_CIPHER_CTX *c, int pad);
 int EVP_CIPHER_CTX_ctrl(EVP_CIPHER_CTX *ctx, int type, int arg, void *ptr);
 int EVP_CIPHER_CTX_rand_key(EVP_CIPHER_CTX *ctx, unsigned char *key);
+int EVP_CIPHER_get_params(EVP_CIPHER *cipher, OSSL_PARAM params[]);
+int EVP_CIPHER_CTX_set_params(EVP_CIPHER_CTX *ctx, const OSSL_PARAM params[]);
+int EVP_CIPHER_CTX_get_params(EVP_CIPHER_CTX *ctx, OSSL_PARAM params[]);
+const OSSL_PARAM *EVP_CIPHER_gettable_params(const EVP_CIPHER *cipher);
+const OSSL_PARAM *EVP_CIPHER_CTX_settable_params(const EVP_CIPHER *cipher);
+const OSSL_PARAM *EVP_CIPHER_CTX_gettable_params(const EVP_CIPHER *cipher);
 
 const BIO_METHOD *BIO_f_md(void);
 const BIO_METHOD *BIO_f_base64(void);
@@ -1011,53 +1026,33 @@ void EVP_MD_do_all_ex(OPENSSL_CTX *libctx,
 
 /* MAC stuff */
 
-# define EVP_MAC_BLAKE2B        NID_blake2bmac
-# define EVP_MAC_BLAKE2S        NID_blake2smac
-# define EVP_MAC_CMAC           NID_cmac
-# define EVP_MAC_GMAC           NID_gmac
-# define EVP_MAC_HMAC           NID_hmac
-# define EVP_MAC_KMAC128        NID_kmac128
-# define EVP_MAC_KMAC256        NID_kmac256
-# define EVP_MAC_SIPHASH        NID_siphash
-# define EVP_MAC_POLY1305       NID_poly1305
+EVP_MAC *EVP_MAC_fetch(OPENSSL_CTX *libctx, const char *algorithm,
+                       const char *properties);
+int EVP_MAC_up_ref(EVP_MAC *mac);
+void EVP_MAC_free(EVP_MAC *mac);
+const char *EVP_MAC_name(const EVP_MAC *mac);
+const OSSL_PROVIDER *EVP_MAC_provider(const EVP_MAC *mac);
+int EVP_MAC_get_params(EVP_MAC *mac, OSSL_PARAM params[]);
 
-EVP_MAC_CTX *EVP_MAC_CTX_new(const EVP_MAC *mac);
-EVP_MAC_CTX *EVP_MAC_CTX_new_id(int nid);
+EVP_MAC_CTX *EVP_MAC_CTX_new(EVP_MAC *mac);
 void EVP_MAC_CTX_free(EVP_MAC_CTX *ctx);
 EVP_MAC_CTX *EVP_MAC_CTX_dup(const EVP_MAC_CTX *src);
-const EVP_MAC *EVP_MAC_CTX_mac(EVP_MAC_CTX *ctx);
+EVP_MAC *EVP_MAC_CTX_mac(EVP_MAC_CTX *ctx);
+int EVP_MAC_CTX_get_params(EVP_MAC_CTX *ctx, OSSL_PARAM params[]);
+int EVP_MAC_CTX_set_params(EVP_MAC_CTX *ctx, const OSSL_PARAM params[]);
+
 size_t EVP_MAC_size(EVP_MAC_CTX *ctx);
 int EVP_MAC_init(EVP_MAC_CTX *ctx);
 int EVP_MAC_update(EVP_MAC_CTX *ctx, const unsigned char *data, size_t datalen);
-int EVP_MAC_final(EVP_MAC_CTX *ctx, unsigned char *out, size_t *poutlen);
-int EVP_MAC_ctrl(EVP_MAC_CTX *ctx, int cmd, ...);
-int EVP_MAC_vctrl(EVP_MAC_CTX *ctx, int cmd, va_list args);
-int EVP_MAC_ctrl_str(EVP_MAC_CTX *ctx, const char *type, const char *value);
-int EVP_MAC_str2ctrl(EVP_MAC_CTX *ctx, int cmd, const char *value);
-int EVP_MAC_hex2ctrl(EVP_MAC_CTX *ctx, int cmd, const char *value);
-int EVP_MAC_nid(const EVP_MAC *mac);
+int EVP_MAC_final(EVP_MAC_CTX *ctx,
+                  unsigned char *out, size_t *outl, size_t outsize);
+const OSSL_PARAM *EVP_MAC_gettable_params(const EVP_MAC *mac);
+const OSSL_PARAM *EVP_MAC_CTX_gettable_params(const EVP_MAC *mac);
+const OSSL_PARAM *EVP_MAC_CTX_settable_params(const EVP_MAC *mac);
 
-# define EVP_get_macbynid(a)    EVP_get_macbyname(OBJ_nid2sn(a))
-# define EVP_get_macbyobj(a)    EVP_get_macbynid(OBJ_obj2nid(a))
-# define EVP_MAC_name(o)        OBJ_nid2sn(EVP_MAC_nid(o))
-const EVP_MAC *EVP_get_macbyname(const char *name);
-void EVP_MAC_do_all(void (*fn)
-                    (const EVP_MAC *ciph, const char *from, const char *to,
-                     void *x), void *arg);
-void EVP_MAC_do_all_sorted(void (*fn)
-                           (const EVP_MAC *ciph, const char *from,
-                            const char *to, void *x), void *arg);
-
-# define EVP_MAC_CTRL_SET_KEY           0x01 /* unsigned char *, size_t */
-# define EVP_MAC_CTRL_SET_FLAGS         0x02 /* unsigned long */
-# define EVP_MAC_CTRL_SET_ENGINE        0x03 /* ENGINE * */
-# define EVP_MAC_CTRL_SET_MD            0x04 /* EVP_MD * */
-# define EVP_MAC_CTRL_SET_CIPHER        0x05 /* EVP_CIPHER * */
-# define EVP_MAC_CTRL_SET_SIZE          0x06 /* size_t */
-# define EVP_MAC_CTRL_SET_IV            0x07 /* unsigned char *, size_t */
-# define EVP_MAC_CTRL_SET_CUSTOM        0x08 /* unsigned char *, size_t */
-# define EVP_MAC_CTRL_SET_XOF           0x09 /* int */
-# define EVP_MAC_CTRL_SET_SALT          0x0a /* unsigned char *, size_t */
+void EVP_MAC_do_all_ex(OPENSSL_CTX *libctx,
+                       void (*fn)(EVP_MAC *mac, void *arg),
+                       void *arg);
 
 /* PKEY stuff */
 int EVP_PKEY_decrypt_old(unsigned char *dec_key,

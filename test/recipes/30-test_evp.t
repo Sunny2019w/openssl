@@ -11,15 +11,23 @@ use strict;
 use warnings;
 
 use OpenSSL::Test qw(:DEFAULT data_file bldtop_dir srctop_file);
+use OpenSSL::Test::Utils;
 
 setup("test_evp");
 
-my @configs = qw( default-and-legacy.cnf fips.cnf );
-my @files = qw( evpciph.txt evpdigest.txt evpencod.txt evpkdf.txt
-    evppkey_kdf.txt evpmac.txt evppbe.txt evppkey.txt
-    evppkey_ecc.txt evpcase.txt evpaessiv.txt evpccmcavs.txt );
+# Default config depends on if the legacy module is built or not
+my $defaultcnf = disabled('legacy') ? 'default.cnf' : 'default-and-legacy.cnf';
 
-plan tests => scalar(@configs) * scalar(@files);
+my @configs = ( $defaultcnf );
+# Only add the FIPS config if the FIPS module has been built
+push @configs, 'fips.cnf' unless disabled('fips');
+
+my @files = qw( evpciph.txt evpdigest.txt );
+my @defltfiles = qw( evpencod.txt evpkdf.txt evppkey_kdf.txt evpmac.txt
+    evppbe.txt evppkey.txt evppkey_ecc.txt evpcase.txt evpaessiv.txt
+    evpccmcavs.txt );
+
+plan tests => (scalar(@configs) * scalar(@files)) + scalar(@defltfiles);
 
 $ENV{OPENSSL_MODULES} = bldtop_dir("providers");
 
@@ -30,4 +38,14 @@ foreach (@configs) {
         ok(run(test(["evp_test", data_file("$f")])),
            "running evp_test $f");
     }
+}
+
+#TODO(3.0): As more operations are converted to providers we can move more of
+#           these tests to the loop above
+
+$ENV{OPENSSL_CONF} = srctop_file("test", $defaultcnf);
+
+foreach my $f ( @defltfiles ) {
+    ok(run(test(["evp_test", data_file("$f")])),
+       "running evp_test $f");
 }

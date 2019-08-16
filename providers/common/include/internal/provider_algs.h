@@ -57,6 +57,25 @@ extern const OSSL_DISPATCH aes128cfb8_functions[];
 extern const OSSL_DISPATCH aes256ctr_functions[];
 extern const OSSL_DISPATCH aes192ctr_functions[];
 extern const OSSL_DISPATCH aes128ctr_functions[];
+extern const OSSL_DISPATCH aes256gcm_functions[];
+extern const OSSL_DISPATCH aes192gcm_functions[];
+extern const OSSL_DISPATCH aes128gcm_functions[];
+#ifndef OPENSSL_NO_ARIA
+extern const OSSL_DISPATCH aria256gcm_functions[];
+extern const OSSL_DISPATCH aria192gcm_functions[];
+extern const OSSL_DISPATCH aria128gcm_functions[];
+#endif /* OPENSSL_NO_ARIA */
+
+/* MACs */
+extern const OSSL_DISPATCH blake2bmac_functions[];
+extern const OSSL_DISPATCH blake2smac_functions[];
+extern const OSSL_DISPATCH cmac_functions[];
+extern const OSSL_DISPATCH gmac_functions[];
+extern const OSSL_DISPATCH hmac_functions[];
+extern const OSSL_DISPATCH kmac128_functions[];
+extern const OSSL_DISPATCH kmac256_functions[];
+extern const OSSL_DISPATCH siphash_functions[];
+extern const OSSL_DISPATCH poly1305_functions[];
 
 /* Key management */
 extern const OSSL_DISPATCH dh_keymgmt_functions[];

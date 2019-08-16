@@ -195,7 +195,10 @@ ERR_GET_LIB                             define
 ERR_GET_REASON                          define
 ERR_PACK                                define
 ERR_free_strings                        define deprecated 1.1.0
+ERR_put_error                           define deprecated 3.0
 ERR_load_crypto_strings                 define deprecated 1.1.0
+ERR_raise                               define
+ERR_raise_data                          define
 EVP_DigestSignUpdate                    define
 EVP_DigestVerifyUpdate                  define
 EVP_KDF_name                            define
@@ -447,6 +450,7 @@ SSL_get_secure_renegotiation_support    define
 SSL_get_server_tmp_key                  define
 SSL_get_shared_curve                    define
 SSL_get_shared_group                    define
+SSL_get_negotiated_group                define
 SSL_get_signature_nid                   define
 SSL_get_time                            define
 SSL_get_timeout                         define

@@ -1,5 +1,5 @@
 /*
- * Copyright 1995-2018 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 1995-2019 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the Apache License 2.0 (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -163,6 +163,12 @@ int EVP_CipherInit_ex(EVP_CIPHER_CTX *ctx, const EVP_CIPHER *cipher,
         case NID_aes_256_ctr:
         case NID_aes_192_ctr:
         case NID_aes_128_ctr:
+        case NID_aes_256_gcm:
+        case NID_aes_192_gcm:
+        case NID_aes_128_gcm:
+        case NID_aria_256_gcm:
+        case NID_aria_192_gcm:
+        case NID_aria_128_gcm:
             break;
         default:
             goto legacy;
@@ -191,9 +197,7 @@ int EVP_CipherInit_ex(EVP_CIPHER_CTX *ctx, const EVP_CIPHER *cipher,
         ctx->flags = flags;
     }
 
-    if (cipher != NULL)
-        ctx->cipher = cipher;
-    else
+    if (cipher == NULL)
         cipher = ctx->cipher;
 
     if (cipher->prov == NULL) {
@@ -926,7 +930,7 @@ int EVP_CIPHER_CTX_set_key_length(EVP_CIPHER_CTX *c, int keylen)
     params[0] = OSSL_PARAM_construct_int(OSSL_CIPHER_PARAM_KEYLEN, &keylen);
     ok = evp_do_ciph_ctx_setparams(c->cipher, c->provctx, params);
 
-    if (ok != -2)
+    if (ok != EVP_CTRL_RET_UNSUPPORTED)
         return ok;
 
     /* TODO(3.0) legacy code follows */
@@ -960,7 +964,7 @@ int EVP_CIPHER_CTX_set_padding(EVP_CIPHER_CTX *ctx, int pad)
 
 int EVP_CIPHER_CTX_ctrl(EVP_CIPHER_CTX *ctx, int type, int arg, void *ptr)
 {
-    int ret = -2;                /* Unsupported */
+    int ret = EVP_CTRL_RET_UNSUPPORTED;
     int set_params = 1;
     size_t sz;
     OSSL_PARAM params[2] = { OSSL_PARAM_END, OSSL_PARAM_END };
@@ -981,7 +985,7 @@ int EVP_CIPHER_CTX_ctrl(EVP_CIPHER_CTX *ctx, int type, int arg, void *ptr)
     case EVP_CTRL_SET_PIPELINE_OUTPUT_BUFS: /* Used by DASYNC */
     case EVP_CTRL_INIT: /* TODO(3.0) Purely legacy, no provider counterpart */
     default:
-        return -2;      /* Unsupported */
+        return EVP_CTRL_RET_UNSUPPORTED;
     case EVP_CTRL_GET_IV:
         set_params = 0;
         params[0] = OSSL_PARAM_construct_octet_string(OSSL_CIPHER_PARAM_IV,
@@ -1039,12 +1043,54 @@ legacy:
     }
 
     ret = ctx->cipher->ctrl(ctx, type, arg, ptr);
-    if (ret == -1) {
+    if (ret == EVP_CTRL_RET_UNSUPPORTED) {
         EVPerr(EVP_F_EVP_CIPHER_CTX_CTRL,
                EVP_R_CTRL_OPERATION_NOT_IMPLEMENTED);
         return 0;
     }
     return ret;
+}
+
+int EVP_CIPHER_get_params(EVP_CIPHER *cipher, OSSL_PARAM params[])
+{
+    if (cipher != NULL && cipher->get_params != NULL)
+        return cipher->get_params(params);
+    return 0;
+}
+
+int EVP_CIPHER_CTX_set_params(EVP_CIPHER_CTX *ctx, const OSSL_PARAM params[])
+{
+    if (ctx->cipher != NULL && ctx->cipher->set_ctx_params != NULL)
+        return ctx->cipher->set_ctx_params(ctx->provctx, params);
+    return 0;
+}
+
+int EVP_CIPHER_CTX_get_params(EVP_CIPHER_CTX *ctx, OSSL_PARAM params[])
+{
+    if (ctx->cipher != NULL && ctx->cipher->get_ctx_params != NULL)
+        return ctx->cipher->get_ctx_params(ctx->provctx, params);
+    return 0;
+}
+
+const OSSL_PARAM *EVP_CIPHER_gettable_params(const EVP_CIPHER *cipher)
+{
+    if (cipher != NULL && cipher->gettable_params != NULL)
+        return cipher->gettable_params();
+    return NULL;
+}
+
+const OSSL_PARAM *EVP_CIPHER_CTX_settable_params(const EVP_CIPHER *cipher)
+{
+    if (cipher != NULL && cipher->settable_ctx_params != NULL)
+        return cipher->settable_ctx_params();
+    return NULL;
+}
+
+const OSSL_PARAM *EVP_CIPHER_CTX_gettable_params(const EVP_CIPHER *cipher)
+{
+    if (cipher != NULL && cipher->gettable_ctx_params != NULL)
+        return cipher->gettable_ctx_params();
+    return NULL;
 }
 
 #if !defined(FIPS_MODE)
@@ -1198,15 +1244,32 @@ static void *evp_cipher_from_dispatch(const char *name,
                 break;
             cipher->get_params = OSSL_get_OP_cipher_get_params(fns);
             break;
-        case OSSL_FUNC_CIPHER_CTX_GET_PARAMS:
-            if (cipher->ctx_get_params != NULL)
+        case OSSL_FUNC_CIPHER_GET_CTX_PARAMS:
+            if (cipher->get_ctx_params != NULL)
                 break;
-            cipher->ctx_get_params = OSSL_get_OP_cipher_ctx_get_params(fns);
+            cipher->get_ctx_params = OSSL_get_OP_cipher_get_ctx_params(fns);
             break;
-        case OSSL_FUNC_CIPHER_CTX_SET_PARAMS:
-            if (cipher->ctx_set_params != NULL)
+        case OSSL_FUNC_CIPHER_SET_CTX_PARAMS:
+            if (cipher->set_ctx_params != NULL)
                 break;
-            cipher->ctx_set_params = OSSL_get_OP_cipher_ctx_set_params(fns);
+            cipher->set_ctx_params = OSSL_get_OP_cipher_set_ctx_params(fns);
+            break;
+        case OSSL_FUNC_CIPHER_GETTABLE_PARAMS:
+            if (cipher->gettable_params != NULL)
+                break;
+            cipher->gettable_params = OSSL_get_OP_cipher_gettable_params(fns);
+            break;
+        case OSSL_FUNC_CIPHER_GETTABLE_CTX_PARAMS:
+            if (cipher->gettable_ctx_params != NULL)
+                break;
+            cipher->gettable_ctx_params =
+                OSSL_get_OP_cipher_gettable_ctx_params(fns);
+            break;
+        case OSSL_FUNC_CIPHER_SETTABLE_CTX_PARAMS:
+            if (cipher->settable_ctx_params != NULL)
+                break;
+            cipher->settable_ctx_params =
+                OSSL_get_OP_cipher_settable_ctx_params(fns);
             break;
         }
     }
@@ -1216,9 +1279,8 @@ static void *evp_cipher_from_dispatch(const char *name,
         /*
          * In order to be a consistent set of functions we must have at least
          * a complete set of "encrypt" functions, or a complete set of "decrypt"
-         * functions, or a single "cipher" function. In all cases we need a
-         * complete set of context management functions, as well as the
-         * blocksize, iv_length and key_length functions.
+         * functions, or a single "cipher" function. In all cases we need both
+         * the "newctx" and "freectx" functions.
          */
         EVP_CIPHER_meth_free(cipher);
         EVPerr(EVP_F_EVP_CIPHER_FROM_DISPATCH, EVP_R_INVALID_PROVIDER_FUNCTIONS);
