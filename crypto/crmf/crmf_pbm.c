@@ -207,8 +207,8 @@ int OSSL_CRMF_pbm_new(const OSSL_CRMF_PBMPARAMETER *pbmp,
     }
 
     macparams[0] =
-        OSSL_PARAM_construct_utf8_string(OSSL_MAC_PARAM_ALGORITHM,
-                                         (char *)mdname, strlen(mdname) + 1);
+        OSSL_PARAM_construct_utf8_string(OSSL_MAC_PARAM_DIGEST,
+                                         (char *)mdname, 0);
     macparams[1] =
         OSSL_PARAM_construct_octet_string(OSSL_MAC_PARAM_KEY, basekey, bklen);
     if ((mac = EVP_MAC_fetch(NULL, "HMAC", NULL)) == NULL

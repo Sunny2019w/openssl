@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <openssl/bio.h>
+#include <openssl/conf.h>
 #include <openssl/crypto.h>
 #include <openssl/err.h>
 #include <openssl/evp.h>
@@ -19,6 +20,8 @@
 #include <openssl/pem.h>
 #include <openssl/kdf.h>
 #include <openssl/provider.h>
+#include <openssl/core_names.h>
+#include <openssl/dsa.h>
 #include "testutil.h"
 #include "internal/nelem.h"
 #include "internal/evp_int.h"
@@ -1068,166 +1071,120 @@ done:
   X509_PUBKEY_free(xp);
   return ret;
 }
+#endif /* OPENSSL_NO_EC */
+
+#ifndef OPENSSL_NO_DSA
+/* Test getting and setting parameters on an EVP_PKEY_CTX */
+static int test_EVP_PKEY_CTX_get_set_params(void)
+{
+    EVP_PKEY_CTX *ctx = NULL;
+    EVP_SIGNATURE *dsaimpl = NULL;
+    const OSSL_PARAM *params;
+    OSSL_PARAM ourparams[2], *param = ourparams;
+    DSA *dsa = NULL;
+    BIGNUM *p = NULL, *q = NULL, *g = NULL;
+    EVP_PKEY *pkey = NULL;
+    int ret = 0;
+    const EVP_MD *md;
+    size_t mdsize = SHA512_DIGEST_LENGTH;
+
+    /*
+     * Setup the parameters for our DSA object. For our purposes they don't have
+     * to actually be *valid* parameters. We just need to set something. We
+     * don't even need a pub_key/priv_key.
+     */
+    dsa = DSA_new();
+    p = BN_new();
+    q = BN_new();
+    g = BN_new();
+    if (!TEST_ptr(dsa)
+            || !TEST_ptr(p)
+            || !TEST_ptr(q)
+            || !TEST_ptr(g)
+            || !DSA_set0_pqg(dsa, p, q, g))
+        goto err;
+    p = q = g = NULL;
+
+    pkey = EVP_PKEY_new();
+    if (!TEST_ptr(pkey)
+            || !TEST_true(EVP_PKEY_assign_DSA(pkey, dsa)))
+        goto err;
+
+    dsa = NULL;
+
+    /* Initialise a sign operation */
+    ctx = EVP_PKEY_CTX_new(pkey, NULL);
+    dsaimpl = EVP_SIGNATURE_fetch(NULL, "DSA", NULL);
+    if (!TEST_ptr(ctx)
+            || !TEST_ptr(dsaimpl)
+            || !TEST_int_gt(EVP_PKEY_sign_init_ex(ctx, dsaimpl), 0))
+        goto err;
+
+    /*
+     * We should be able to query the parameters now. The default DSA
+     * implementation supports exactly one parameter - so we expect to see that
+     * returned and no more.
+     */
+    params = EVP_PKEY_CTX_settable_params(ctx);
+    if (!TEST_ptr(params)
+            || !TEST_int_eq(strcmp(params[0].key,
+                            OSSL_SIGNATURE_PARAM_DIGEST_SIZE), 0)
+            || !TEST_int_eq(strcmp(params[1].key, OSSL_SIGNATURE_PARAM_DIGEST),
+                            0)
+               /* The final key should be NULL */
+            || !TEST_ptr_null(params[2].key))
+        goto err;
+
+    /* Gettable params are the same as the settable ones */
+    params = EVP_PKEY_CTX_gettable_params(ctx);
+    if (!TEST_ptr(params)
+            || !TEST_int_eq(strcmp(params[0].key,
+                            OSSL_SIGNATURE_PARAM_DIGEST_SIZE), 0)
+            || !TEST_int_eq(strcmp(params[1].key, OSSL_SIGNATURE_PARAM_DIGEST),
+                            0)
+               /* The final key should be NULL */
+            || !TEST_ptr_null(params[2].key))
+        goto err;
+
+    /*
+     * Test getting and setting params via EVP_PKEY_CTX_set_params() and
+     * EVP_PKEY_CTX_get_params()
+     */
+    *param++ = OSSL_PARAM_construct_size_t(OSSL_SIGNATURE_PARAM_DIGEST_SIZE,
+                                           &mdsize);
+    *param++ = OSSL_PARAM_construct_end();
+
+    if (!TEST_true(EVP_PKEY_CTX_set_params(ctx, ourparams)))
+        goto err;
+
+    mdsize = 0;
+    if (!TEST_true(EVP_PKEY_CTX_get_params(ctx, ourparams))
+            || !TEST_size_t_eq(mdsize, SHA512_DIGEST_LENGTH))
+        goto err;
+
+    /*
+     * Test the TEST_PKEY_CTX_set_signature_md() and
+     * TEST_PKEY_CTX_get_signature_md() functions
+     */
+    if (!TEST_int_gt(EVP_PKEY_CTX_set_signature_md(ctx, EVP_sha256()), 0)
+            || !TEST_int_gt(EVP_PKEY_CTX_get_signature_md(ctx, &md), 0)
+            || !TEST_ptr_eq(md, EVP_sha256()))
+        goto err;
+
+    ret = 1;
+
+ err:
+    EVP_PKEY_CTX_free(ctx);
+    EVP_SIGNATURE_free(dsaimpl);
+    EVP_PKEY_free(pkey);
+    DSA_free(dsa);
+    BN_free(p);
+    BN_free(q);
+    BN_free(g);
+
+    return ret;
+}
 #endif
-
-
-static int calculate_digest(const EVP_MD *md, const char *msg, size_t len,
-                            const unsigned char *exptd)
-{
-    unsigned char out[SHA256_DIGEST_LENGTH];
-    EVP_MD_CTX *ctx;
-    int ret = 0;
-
-    if (!TEST_ptr(ctx = EVP_MD_CTX_new())
-            || !TEST_true(EVP_DigestInit_ex(ctx, md, NULL))
-            || !TEST_true(EVP_DigestUpdate(ctx, msg, len))
-            || !TEST_true(EVP_DigestFinal_ex(ctx, out, NULL))
-            || !TEST_mem_eq(out, SHA256_DIGEST_LENGTH, exptd,
-                            SHA256_DIGEST_LENGTH)
-            || !TEST_true(md == EVP_MD_CTX_md(ctx)))
-        goto err;
-
-    ret = 1;
- err:
-    EVP_MD_CTX_free(ctx);
-    return ret;
-}
-/*
- * Test EVP_MD_fetch()
- *
- * Test 0: Test with the default OPENSSL_CTX
- * Test 1: Test with an explicit OPENSSL_CTX
- * Test 2: Explicit OPENSSL_CTX with explicit load of default provider
- * Test 3: Explicit OPENSSL_CTX with explicit load of default and fips provider
- * Test 4: Explicit OPENSSL_CTX with explicit load of fips provider
- */
-static int test_EVP_MD_fetch(int tst)
-{
-    OPENSSL_CTX *ctx = NULL;
-    EVP_MD *md = NULL;
-    OSSL_PROVIDER *defltprov = NULL, *fipsprov = NULL;
-    int ret = 0;
-    const char testmsg[] = "Hello world";
-    const unsigned char exptd[] = {
-      0x27, 0x51, 0x8b, 0xa9, 0x68, 0x30, 0x11, 0xf6, 0xb3, 0x96, 0x07, 0x2c,
-      0x05, 0xf6, 0x65, 0x6d, 0x04, 0xf5, 0xfb, 0xc3, 0x78, 0x7c, 0xf9, 0x24,
-      0x90, 0xec, 0x60, 0x6e, 0x50, 0x92, 0xe3, 0x26
-    };
-
-    if (tst > 0) {
-        ctx = OPENSSL_CTX_new();
-        if (!TEST_ptr(ctx))
-            goto err;
-
-        if (tst == 2 || tst == 3) {
-            defltprov = OSSL_PROVIDER_load(ctx, "default");
-            if (!TEST_ptr(defltprov))
-                goto err;
-        }
-        if (tst == 3 || tst == 4) {
-            fipsprov = OSSL_PROVIDER_load(ctx, "fips");
-            if (!TEST_ptr(fipsprov))
-                goto err;
-        }
-    }
-
-    /* Implicit fetching of the MD should produce the expected result */
-    if (!TEST_true(calculate_digest(EVP_sha256(), testmsg, sizeof(testmsg),
-                                    exptd))
-            || !TEST_int_eq(EVP_MD_size(EVP_sha256()), SHA256_DIGEST_LENGTH)
-            || !TEST_int_eq(EVP_MD_block_size(EVP_sha256()), SHA256_CBLOCK))
-        goto err;
-
-    /*
-     * Test that without specifying any properties we can get a sha256 md from a
-     * provider.
-     */
-    if (!TEST_ptr(md = EVP_MD_fetch(ctx, "SHA256", NULL))
-            || !TEST_ptr(md)
-            || !TEST_int_eq(EVP_MD_nid(md), NID_sha256)
-            || !TEST_true(calculate_digest(md, testmsg, sizeof(testmsg), exptd))
-            || !TEST_int_eq(EVP_MD_size(md), SHA256_DIGEST_LENGTH)
-            || !TEST_int_eq(EVP_MD_block_size(md), SHA256_CBLOCK))
-        goto err;
-
-    /* Also test EVP_MD_up_ref() while we're doing this */
-    if (!TEST_true(EVP_MD_up_ref(md)))
-        goto err;
-    /* Ref count should now be 2. Release both */
-    EVP_MD_meth_free(md);
-    EVP_MD_meth_free(md);
-    md = NULL;
-
-    /*
-     * In tests 0 - 2 we've only loaded the default provider so explicitly
-     * asking for a non-default implementation should fail. In tests 3 and 4 we
-     * have the FIPS provider loaded so we should succeed in that case.
-     */
-    md = EVP_MD_fetch(ctx, "SHA256", "default=no");
-    if (tst == 3 || tst == 4) {
-        if (!TEST_ptr(md)
-                || !TEST_true(calculate_digest(md, testmsg, sizeof(testmsg),
-                                               exptd)))
-            goto err;
-    } else  {
-        if (!TEST_ptr_null(md))
-            goto err;
-    }
-
-    EVP_MD_meth_free(md);
-    md = NULL;
-
-    /*
-     * Explicitly asking for the default implementation should succeed except
-     * in test 4 where the default provider is not loaded.
-     */
-    md = EVP_MD_fetch(ctx, "SHA256", "default=yes");
-    if (tst != 4) {
-        if (!TEST_ptr(md)
-                || !TEST_int_eq(EVP_MD_nid(md), NID_sha256)
-                || !TEST_true(calculate_digest(md, testmsg, sizeof(testmsg),
-                                               exptd))
-                || !TEST_int_eq(EVP_MD_size(md), SHA256_DIGEST_LENGTH)
-                || !TEST_int_eq(EVP_MD_block_size(md), SHA256_CBLOCK))
-            goto err;
-    } else {
-        if (!TEST_ptr_null(md))
-            goto err;
-    }
-
-    EVP_MD_meth_free(md);
-    md = NULL;
-
-    /*
-     * Explicitly asking for a fips implementation should succeed if we have
-     * the FIPS provider loaded and fail otherwise
-     */
-    md = EVP_MD_fetch(ctx, "SHA256", "fips=yes");
-    if (tst == 3 || tst == 4) {
-        if (!TEST_ptr(md)
-                || !TEST_true(calculate_digest(md, testmsg, sizeof(testmsg),
-                                               exptd)))
-            goto err;
-    } else  {
-        if (!TEST_ptr_null(md))
-            goto err;
-    }
-
-
-    ret = 1;
-
- err:
-    EVP_MD_meth_free(md);
-    OSSL_PROVIDER_unload(defltprov);
-    OSSL_PROVIDER_unload(fipsprov);
-    /* Not normally needed, but we would like to test that
-     * OPENSSL_thread_stop_ex() behaves as expected.
-     */
-    if (ctx != NULL)
-        OPENSSL_thread_stop_ex(ctx);
-    OPENSSL_CTX_free(ctx);
-    return ret;
-}
 
 int setup_tests(void)
 {
@@ -1258,10 +1215,8 @@ int setup_tests(void)
     ADD_ALL_TESTS(test_invalide_ec_char2_pub_range_decode,
                   OSSL_NELEM(ec_der_pub_keys));
 #endif
-#ifdef NO_FIPS_MODULE
-    ADD_ALL_TESTS(test_EVP_MD_fetch, 3);
-#else
-    ADD_ALL_TESTS(test_EVP_MD_fetch, 5);
+#ifndef OPENSSL_NO_DSA
+    ADD_TEST(test_EVP_PKEY_CTX_get_set_params);
 #endif
     return 1;
 }

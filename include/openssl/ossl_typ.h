@@ -88,6 +88,8 @@ typedef struct bn_gencb_st BN_GENCB;
 
 typedef struct buf_mem_st BUF_MEM;
 
+typedef struct err_state_st ERR_STATE;
+
 typedef struct evp_cipher_st EVP_CIPHER;
 typedef struct evp_cipher_ctx_st EVP_CIPHER_CTX;
 typedef struct evp_md_st EVP_MD;
@@ -107,6 +109,8 @@ typedef struct evp_kdf_st EVP_KDF;
 typedef struct evp_kdf_ctx_st EVP_KDF_CTX;
 
 typedef struct evp_keyexch_st EVP_KEYEXCH;
+
+typedef struct evp_signature_st EVP_SIGNATURE;
 
 typedef struct evp_Encode_Ctx_st EVP_ENCODE_CTX;
 

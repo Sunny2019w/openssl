@@ -559,24 +559,33 @@ static void *dh_pkey_export_to(const EVP_PKEY *pk, EVP_KEYMGMT *keymgmt)
     OSSL_PARAM *params;
     void *provkey = NULL;
 
-    if (p == NULL || g == NULL || pub_key == NULL)
+    if (p == NULL || g == NULL)
         return NULL;
 
     ossl_param_bld_init(&tmpl);
-    if (!ossl_param_bld_push_BN(&tmpl, OSSL_PKEY_PARAM_DH_P, p)
-        || !ossl_param_bld_push_BN(&tmpl, OSSL_PKEY_PARAM_DH_G, g)
-        || !ossl_param_bld_push_BN(&tmpl, OSSL_PKEY_PARAM_DH_PUB_KEY, pub_key))
+    if (!ossl_param_bld_push_BN(&tmpl, OSSL_PKEY_PARAM_FFC_P, p)
+        || !ossl_param_bld_push_BN(&tmpl, OSSL_PKEY_PARAM_FFC_G, g))
         return NULL;
 
     if (q != NULL) {
-        if (!ossl_param_bld_push_BN(&tmpl, OSSL_PKEY_PARAM_DH_Q, q))
+        if (!ossl_param_bld_push_BN(&tmpl, OSSL_PKEY_PARAM_FFC_Q, q))
             return NULL;
     }
 
-    if (priv_key != NULL) {
-        if (!ossl_param_bld_push_BN(&tmpl, OSSL_PKEY_PARAM_DH_PRIV_KEY,
-                                    priv_key))
+    /*
+     * This may be used to pass domain parameters only without any key data -
+     * so "pub_key" is optional. We can never have a "priv_key" without a
+     * corresponding "pub_key" though.
+     */
+    if (pub_key != NULL) {
+        if (!ossl_param_bld_push_BN(&tmpl, OSSL_PKEY_PARAM_DH_PUB_KEY, pub_key))
             return NULL;
+
+        if (priv_key != NULL) {
+            if (!ossl_param_bld_push_BN(&tmpl, OSSL_PKEY_PARAM_DH_PRIV_KEY,
+                                        priv_key))
+                return NULL;
+        }
     }
 
     params = ossl_param_bld_to_param(&tmpl);

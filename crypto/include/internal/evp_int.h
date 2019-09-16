@@ -18,8 +18,20 @@
 #define EVP_MD_CTX_FLAG_KEEP_PKEY_CTX   0x0400
 
 struct evp_pkey_ctx_st {
-    EVP_KEYEXCH *exchange;
-    void *exchprovctx;
+    /* Actual operation */
+    int operation;
+
+    union {
+        struct {
+            EVP_KEYEXCH *exchange;
+            void *exchprovctx;
+        } kex;
+
+        struct {
+            EVP_SIGNATURE *signature;
+            void *sigprovctx;
+        } sig;
+    } op;
 
     /* Legacy fields below */
 
@@ -31,8 +43,6 @@ struct evp_pkey_ctx_st {
     EVP_PKEY *pkey;
     /* Peer key for key agreement, may be NULL */
     EVP_PKEY *peerkey;
-    /* Actual operation */
-    int operation;
     /* Algorithm specific data */
     void *data;
     /* Application specific data */
@@ -118,8 +128,6 @@ extern const EVP_PKEY_METHOD hkdf_pkey_meth;
 extern const EVP_PKEY_METHOD poly1305_pkey_meth;
 extern const EVP_PKEY_METHOD siphash_pkey_meth;
 
-/* struct evp_mac_impl_st is defined by the implementation */
-typedef struct evp_mac_impl_st EVP_MAC_IMPL;
 struct evp_mac_st {
     OSSL_PROVIDER *prov;
     char *name;
@@ -142,31 +150,23 @@ struct evp_mac_st {
     OSSL_OP_mac_set_ctx_params_fn *set_ctx_params;
 };
 
-/* Internal keccak algorithms used for KMAC */
-const EVP_MD *evp_keccak_kmac128(void);
-const EVP_MD *evp_keccak_kmac256(void);
-
-/*
- * This function is internal for now, but can be made external when needed.
- * The documentation would read:
- *
- * EVP_add_mac() adds the MAC implementation C<mac> to the internal
- * object database.
- */
-int EVP_add_mac(const EVP_MAC *mac);
-int EVP_add_kdf(const EVP_KDF *kdf);
-
-/* struct evp_kdf_impl_st is defined by the implementation */
-typedef struct evp_kdf_impl_st EVP_KDF_IMPL;
 struct evp_kdf_st {
-    int type;
-    EVP_KDF_IMPL *(*new) (void);
-    void (*free) (EVP_KDF_IMPL *impl);
-    void (*reset) (EVP_KDF_IMPL *impl);
-    int (*ctrl) (EVP_KDF_IMPL *impl, int cmd, va_list args);
-    int (*ctrl_str) (EVP_KDF_IMPL *impl, const char *type, const char *value);
-    size_t (*size) (EVP_KDF_IMPL *impl);
-    int (*derive) (EVP_KDF_IMPL *impl, unsigned char *key, size_t keylen);
+    OSSL_PROVIDER *prov;
+    char *name;
+    CRYPTO_REF_COUNT refcnt;
+    CRYPTO_RWLOCK *lock;
+
+    OSSL_OP_kdf_newctx_fn *newctx;
+    OSSL_OP_kdf_dupctx_fn *dupctx;
+    OSSL_OP_kdf_freectx_fn *freectx;
+    OSSL_OP_kdf_reset_fn *reset;
+    OSSL_OP_kdf_derive_fn *derive;
+    OSSL_OP_kdf_gettable_params_fn *gettable_params;
+    OSSL_OP_kdf_gettable_ctx_params_fn *gettable_ctx_params;
+    OSSL_OP_kdf_settable_ctx_params_fn *settable_ctx_params;
+    OSSL_OP_kdf_get_params_fn *get_params;
+    OSSL_OP_kdf_get_ctx_params_fn *get_ctx_params;
+    OSSL_OP_kdf_set_ctx_params_fn *set_ctx_params;
 };
 
 extern const EVP_KDF pbkdf2_kdf_meth;
@@ -557,11 +557,18 @@ struct evp_pkey_st {
     size_t dirty_cnt_copy;
 } /* EVP_PKEY */ ;
 
+#define EVP_PKEY_CTX_IS_SIGNATURE_OP(ctx) \
+    ((ctx)->operation == EVP_PKEY_OP_SIGN \
+     || (ctx)->operation == EVP_PKEY_OP_SIGNCTX \
+     || (ctx)->operation == EVP_PKEY_OP_VERIFY \
+     || (ctx)->operation == EVP_PKEY_OP_VERIFYCTX \
+     || (ctx)->operation == EVP_PKEY_OP_VERIFYRECOVER)
+
+#define EVP_PKEY_CTX_IS_DERIVE_OP(ctx) \
+    ((ctx)->operation == EVP_PKEY_OP_DERIVE)
 
 void openssl_add_all_ciphers_int(void);
 void openssl_add_all_digests_int(void);
-void openssl_add_all_macs_int(void);
-void openssl_add_all_kdfs_int(void);
 void evp_cleanup_int(void);
 void evp_app_cleanup_int(void);
 

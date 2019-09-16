@@ -16,6 +16,7 @@
 
 #include "internal/provider_algs.h"
 #include "internal/provider_ctx.h"
+#include "internal/provider_util.h"
 
 /*
  * Forward declaration of everything implemented here.  This is not strictly
@@ -39,21 +40,7 @@ static OSSL_OP_mac_final_fn hmac_final;
 struct hmac_data_st {
     void *provctx;
     HMAC_CTX *ctx;               /* HMAC context */
-
-    /*
-     * References to the underlying digest implementation.  tmpmd caches
-     * the md, always.  alloc_md only holds a reference to an explicitly
-     * fetched digest.
-     * tmpmd is cleared after a CMAC_Init call.
-     */
-    const EVP_MD *tmpmd;         /* HMAC digest */
-    EVP_MD *alloc_md;            /* fetched digest */
-
-    /*
-     * Conditions for legacy EVP_MD uses.
-     * tmpengine is cleared after a CMAC_Init call.
-     */
-    ENGINE *tmpengine;           /* HMAC digest engine */
+    PROV_DIGEST digest;
 };
 
 static size_t hmac_size(void *vmacctx);
@@ -79,7 +66,7 @@ static void hmac_free(void *vmacctx)
 
     if (macctx != NULL) {
         HMAC_CTX_free(macctx->ctx);
-        EVP_MD_meth_free(macctx->alloc_md);
+        ossl_prov_digest_reset(&macctx->digest);
         OPENSSL_free(macctx);
     }
 }
@@ -92,19 +79,11 @@ static void *hmac_dup(void *vsrc)
     if (dst == NULL)
         return NULL;
 
-    if (!HMAC_CTX_copy(dst->ctx, src->ctx)) {
+    if (!HMAC_CTX_copy(dst->ctx, src->ctx)
+        || !ossl_prov_digest_copy(&dst->digest, &src->digest)) {
         hmac_free(dst);
         return NULL;
     }
-
-    if (src->alloc_md != NULL && !EVP_MD_up_ref(src->alloc_md)) {
-        hmac_free(dst);
-        return NULL;
-    }
-
-    dst->tmpengine = src->tmpengine;
-    dst->tmpmd = src->tmpmd;
-    dst->alloc_md = src->alloc_md;
     return dst;
 }
 
@@ -118,14 +97,14 @@ static size_t hmac_size(void *vmacctx)
 static int hmac_init(void *vmacctx)
 {
     struct hmac_data_st *macctx = vmacctx;
+    const EVP_MD *digest = ossl_prov_digest_md(&macctx->digest);
     int rv = 1;
 
     /* HMAC_Init_ex doesn't tolerate all zero params, so we must be careful */
-    if (macctx->tmpmd != NULL)
-        rv = HMAC_Init_ex(macctx->ctx, NULL, 0, macctx->tmpmd,
-                          (ENGINE * )macctx->tmpengine);
-    macctx->tmpengine = NULL;
-    macctx->tmpmd = NULL;
+    if (digest != NULL)
+        rv = HMAC_Init_ex(macctx->ctx, NULL, 0, digest,
+                          ossl_prov_digest_engine(&macctx->digest));
+    ossl_prov_digest_reset(&macctx->digest);
     return rv;
 }
 
@@ -151,8 +130,7 @@ static int hmac_final(void *vmacctx, unsigned char *out, size_t *outl,
 }
 
 static const OSSL_PARAM known_gettable_ctx_params[] = {
-    OSSL_PARAM_size_t(OSSL_MAC_PARAM_OUTLEN, NULL),
-    OSSL_PARAM_size_t(OSSL_MAC_PARAM_SIZE, NULL), /* Same as "outlen" */
+    OSSL_PARAM_size_t(OSSL_MAC_PARAM_SIZE, NULL),
     OSSL_PARAM_END
 };
 static const OSSL_PARAM *hmac_gettable_ctx_params(void)
@@ -164,16 +142,13 @@ static int hmac_get_ctx_params(void *vmacctx, OSSL_PARAM params[])
 {
     OSSL_PARAM *p;
 
-    if ((p = OSSL_PARAM_locate(params, OSSL_MAC_PARAM_OUTLEN)) != NULL
-        || (p = OSSL_PARAM_locate(params, OSSL_MAC_PARAM_SIZE)) != NULL)
+    if ((p = OSSL_PARAM_locate(params, OSSL_MAC_PARAM_SIZE)) != NULL)
         return OSSL_PARAM_set_size_t(p, hmac_size(vmacctx));
 
     return 1;
 }
 
 static const OSSL_PARAM known_settable_ctx_params[] = {
-    /* "algorithm" and "digest" are the same parameter */
-    OSSL_PARAM_utf8_string(OSSL_MAC_PARAM_ALGORITHM, NULL, 0),
     OSSL_PARAM_utf8_string(OSSL_MAC_PARAM_DIGEST, NULL, 0),
     OSSL_PARAM_utf8_string(OSSL_MAC_PARAM_ENGINE, NULL, 0),
     OSSL_PARAM_utf8_string(OSSL_MAC_PARAM_PROPERTIES, NULL, 0),
@@ -192,58 +167,12 @@ static const OSSL_PARAM *hmac_settable_ctx_params(void)
 static int hmac_set_ctx_params(void *vmacctx, const OSSL_PARAM params[])
 {
     struct hmac_data_st *macctx = vmacctx;
+    OPENSSL_CTX *ctx = PROV_LIBRARY_CONTEXT_OF(macctx->provctx);
     const OSSL_PARAM *p;
 
-    if ((p = OSSL_PARAM_locate_const(params, OSSL_MAC_PARAM_DIGEST)) != NULL
-        || (p = OSSL_PARAM_locate_const(params,
-                                        OSSL_MAC_PARAM_ALGORITHM)) != NULL) {
-        if (p->data_type != OSSL_PARAM_UTF8_STRING)
-            return 0;
+    if (!ossl_prov_digest_load_from_params(&macctx->digest, params, ctx))
+        return 0;
 
-        {
-            const char *algoname = p->data;
-            const char *propquery = NULL;
-
-#ifndef FIPS_MODE /* Inside the FIPS module, we don't support engines */
-            ENGINE_finish(macctx->tmpengine);
-            macctx->tmpengine = NULL;
-
-            if ((p = OSSL_PARAM_locate_const(params, OSSL_MAC_PARAM_ENGINE))
-                != NULL) {
-                if (p->data_type != OSSL_PARAM_UTF8_STRING)
-                    return 0;
-
-                macctx->tmpengine = ENGINE_by_id(p->data);
-                if (macctx->tmpengine == NULL)
-                    return 0;
-            }
-#endif
-            if ((p = OSSL_PARAM_locate_const(params,
-                                             OSSL_MAC_PARAM_PROPERTIES))
-                != NULL) {
-                if (p->data_type != OSSL_PARAM_UTF8_STRING)
-                    return 0;
-
-                propquery = p->data;
-            }
-
-            EVP_MD_meth_free(macctx->alloc_md);
-
-            macctx->tmpmd = macctx->alloc_md =
-                EVP_MD_fetch(PROV_LIBRARY_CONTEXT_OF(macctx->provctx),
-                             algoname, propquery);
-
-#ifndef FIPS_MODE /* Inside the FIPS module, we don't support legacy digests */
-            /* TODO(3.0) BEGIN legacy stuff, to be removed */
-            if (macctx->tmpmd == NULL)
-                macctx->tmpmd = EVP_get_digestbyname(algoname);
-            /* TODO(3.0) END of legacy stuff */
-#endif
-
-            if (macctx->tmpmd == NULL)
-                    return 0;
-        }
-    }
     /* TODO(3.0) formalize the meaning of "flags", perhaps as other params */
     if ((p = OSSL_PARAM_locate_const(params,
                                      OSSL_MAC_PARAM_FLAGS)) != NULL) {
@@ -258,11 +187,11 @@ static int hmac_set_ctx_params(void *vmacctx, const OSSL_PARAM params[])
             return 0;
 
         if (!HMAC_Init_ex(macctx->ctx, p->data, p->data_size,
-                          macctx->tmpmd, NULL /* ENGINE */))
+                          ossl_prov_digest_md(&macctx->digest),
+                          NULL /* ENGINE */))
             return 0;
 
-        macctx->tmpmd = NULL;
-        macctx->tmpengine = NULL;
+        ossl_prov_digest_reset(&macctx->digest);
     }
     return 1;
 }

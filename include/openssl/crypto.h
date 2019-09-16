@@ -158,7 +158,7 @@ int OPENSSL_hexchar2int(unsigned char c);
 
 # define OPENSSL_MALLOC_MAX_NELEMS(type)  (((1U<<(sizeof(int)*8-1))-1)/sizeof(type))
 
-DEPRECATEDIN_3(unsigned long OpenSSL_version_num(void))
+unsigned long OpenSSL_version_num(void);
 const char *OpenSSL_version(int type);
 # define OPENSSL_VERSION                0
 # define OPENSSL_CFLAGS                 1
@@ -169,6 +169,7 @@ const char *OpenSSL_version(int type);
 # define OPENSSL_VERSION_STRING         6
 # define OPENSSL_FULL_VERSION_STRING    7
 # define OPENSSL_MODULES_DIR            8
+# define OPENSSL_CPU_INFO               9
 
 const char *OPENSSL_info(int type);
 /*
@@ -181,6 +182,8 @@ const char *OPENSSL_info(int type);
 # define OPENSSL_INFO_DSO_EXTENSION             1004
 # define OPENSSL_INFO_DIR_FILENAME_SEPARATOR    1005
 # define OPENSSL_INFO_LIST_SEPARATOR            1006
+# define OPENSSL_INFO_SEED_SOURCE               1007
+# define OPENSSL_INFO_CPU_SETTINGS              1008
 
 int OPENSSL_issetugid(void);
 
@@ -405,8 +408,8 @@ int CRYPTO_memcmp(const void * in_a, const void * in_b, size_t len);
 /* OPENSSL_INIT flag range 0x03f00000 reserved for OPENSSL_init_ssl() */
 /* FREE: 0x04000000L */
 /* FREE: 0x08000000L */
-# define OPENSSL_INIT_NO_ADD_ALL_KDFS        0x10000000L
-# define OPENSSL_INIT_ADD_ALL_KDFS           0x20000000L
+/* FREE: 0x10000000L */
+/* FREE: 0x20000000L */
 /* FREE: 0x40000000L */
 /* FREE: 0x80000000L */
 /* Max OPENSSL_INIT flag value is 0x80000000 */

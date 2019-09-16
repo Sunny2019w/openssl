@@ -99,6 +99,8 @@ static const ERR_STRING_DATA EVP_str_reasons[] = {
     {ERR_PACK(ERR_LIB_EVP, 0, EVP_R_NO_CIPHER_SET), "no cipher set"},
     {ERR_PACK(ERR_LIB_EVP, 0, EVP_R_NO_DEFAULT_DIGEST), "no default digest"},
     {ERR_PACK(ERR_LIB_EVP, 0, EVP_R_NO_DIGEST_SET), "no digest set"},
+    {ERR_PACK(ERR_LIB_EVP, 0, EVP_R_NO_KEYMGMT_AVAILABLE),
+    "no keymgmt available"},
     {ERR_PACK(ERR_LIB_EVP, 0, EVP_R_NO_KEYMGMT_PRESENT), "no keymgmt present"},
     {ERR_PACK(ERR_LIB_EVP, 0, EVP_R_NO_KEY_SET), "no key set"},
     {ERR_PACK(ERR_LIB_EVP, 0, EVP_R_NO_OPERATION_SET), "no operation set"},
@@ -159,7 +161,7 @@ static const ERR_STRING_DATA EVP_str_reasons[] = {
 int ERR_load_EVP_strings(void)
 {
 #ifndef OPENSSL_NO_ERR
-    if (ERR_func_error_string(EVP_str_reasons[0].error) == NULL)
+    if (ERR_reason_error_string(EVP_str_reasons[0].error) == NULL)
         ERR_load_strings_const(EVP_str_reasons);
 #endif
     return 1;

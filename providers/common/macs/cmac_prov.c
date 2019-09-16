@@ -7,18 +7,16 @@
  * https://www.openssl.org/source/license.html
  */
 
-#include <openssl/opensslconf.h>
-#ifndef OPENSSL_NO_CMAC
+#include <openssl/core_numbers.h>
+#include <openssl/core_names.h>
+#include <openssl/params.h>
+#include <openssl/engine.h>
+#include <openssl/evp.h>
+#include <openssl/cmac.h>
 
-# include <openssl/core_numbers.h>
-# include <openssl/core_names.h>
-# include <openssl/params.h>
-# include <openssl/engine.h>
-# include <openssl/evp.h>
-# include <openssl/cmac.h>
-
-# include "internal/provider_algs.h"
-# include "internal/provider_ctx.h"
+#include "internal/provider_algs.h"
+#include "internal/provider_ctx.h"
+#include "internal/provider_util.h"
 
 /*
  * Forward declaration of everything implemented here.  This is not strictly
@@ -41,21 +39,7 @@ static OSSL_OP_mac_final_fn cmac_final;
 struct cmac_data_st {
     void *provctx;
     CMAC_CTX *ctx;
-
-    /*
-     * References to the underlying cipher implementation.  tmpcipher
-     * caches the cipher, always.  alloc_cipher only holds a reference
-     * to an explicitly fetched cipher.
-     * tmpcipher is cleared after a CMAC_Init call.
-     */
-    const EVP_CIPHER *tmpcipher; /* cached CMAC cipher */
-    EVP_CIPHER *alloc_cipher;    /* fetched CMAC cipher */
-
-    /*
-     * Conditions for legacy EVP_CIPHER uses.
-     * tmpengine is cleared after a CMAC_Init call.
-     */
-    ENGINE *tmpengine;           /* CMAC cipher engine (legacy) */
+    PROV_CIPHER cipher;
 };
 
 static void *cmac_new(void *provctx)
@@ -66,8 +50,9 @@ static void *cmac_new(void *provctx)
         || (macctx->ctx = CMAC_CTX_new()) == NULL) {
         OPENSSL_free(macctx);
         macctx = NULL;
+    } else {
+        macctx->provctx = provctx;
     }
-    macctx->provctx = provctx;
 
     return macctx;
 }
@@ -78,7 +63,7 @@ static void cmac_free(void *vmacctx)
 
     if (macctx != NULL) {
         CMAC_CTX_free(macctx->ctx);
-        EVP_CIPHER_meth_free(macctx->alloc_cipher);
+        ossl_prov_cipher_reset(&macctx->cipher);
         OPENSSL_free(macctx);
     }
 }
@@ -88,19 +73,11 @@ static void *cmac_dup(void *vsrc)
     struct cmac_data_st *src = vsrc;
     struct cmac_data_st *dst = cmac_new(src->provctx);
 
-    if (!CMAC_CTX_copy(dst->ctx, src->ctx)) {
+    if (!CMAC_CTX_copy(dst->ctx, src->ctx)
+        || !ossl_prov_cipher_copy(&dst->cipher, &src->cipher)) {
         cmac_free(dst);
         return NULL;
     }
-
-    if (src->alloc_cipher != NULL && !EVP_CIPHER_up_ref(src->alloc_cipher)) {
-        cmac_free(dst);
-        return NULL;
-    }
-
-    dst->tmpengine = src->tmpengine;
-    dst->tmpcipher = src->tmpcipher;
-    dst->alloc_cipher = src->alloc_cipher;
     return dst;
 }
 
@@ -114,12 +91,11 @@ static size_t cmac_size(void *vmacctx)
 static int cmac_init(void *vmacctx)
 {
     struct cmac_data_st *macctx = vmacctx;
-    int rv = CMAC_Init(macctx->ctx, NULL, 0, macctx->tmpcipher,
-                       (ENGINE *)macctx->tmpengine);
+    int rv = CMAC_Init(macctx->ctx, NULL, 0,
+                       ossl_prov_cipher_cipher(&macctx->cipher),
+                       ossl_prov_cipher_engine(&macctx->cipher));
 
-    macctx->tmpcipher = NULL;
-    macctx->tmpengine = NULL;
-
+    ossl_prov_cipher_reset(&macctx->cipher);
     return rv;
 }
 
@@ -140,8 +116,7 @@ static int cmac_final(void *vmacctx, unsigned char *out, size_t *outl,
 }
 
 static const OSSL_PARAM known_gettable_ctx_params[] = {
-    OSSL_PARAM_size_t(OSSL_MAC_PARAM_OUTLEN, NULL),
-    OSSL_PARAM_size_t(OSSL_MAC_PARAM_SIZE, NULL), /* Same as "outlen" */
+    OSSL_PARAM_size_t(OSSL_MAC_PARAM_SIZE, NULL),
     OSSL_PARAM_END
 };
 static const OSSL_PARAM *cmac_gettable_ctx_params(void)
@@ -153,16 +128,13 @@ static int cmac_get_ctx_params(void *vmacctx, OSSL_PARAM params[])
 {
     OSSL_PARAM *p;
 
-    if ((p = OSSL_PARAM_locate(params, OSSL_MAC_PARAM_OUTLEN)) != NULL
-        || (p = OSSL_PARAM_locate(params, OSSL_MAC_PARAM_SIZE)) != NULL)
+    if ((p = OSSL_PARAM_locate(params, OSSL_MAC_PARAM_SIZE)) != NULL)
         return OSSL_PARAM_set_size_t(p, cmac_size(vmacctx));
 
     return 1;
 }
 
 static const OSSL_PARAM known_settable_ctx_params[] = {
-    /* "algorithm" and "cipher" are the same parameter */
-    OSSL_PARAM_utf8_string(OSSL_MAC_PARAM_ALGORITHM, NULL, 0),
     OSSL_PARAM_utf8_string(OSSL_MAC_PARAM_CIPHER, NULL, 0),
     OSSL_PARAM_utf8_string(OSSL_MAC_PARAM_ENGINE, NULL, 0),
     OSSL_PARAM_utf8_string(OSSL_MAC_PARAM_PROPERTIES, NULL, 0),
@@ -180,68 +152,22 @@ static const OSSL_PARAM *cmac_settable_ctx_params(void)
 static int cmac_set_ctx_params(void *vmacctx, const OSSL_PARAM params[])
 {
     struct cmac_data_st *macctx = vmacctx;
+    OPENSSL_CTX *ctx = PROV_LIBRARY_CONTEXT_OF(macctx->provctx);
     const OSSL_PARAM *p;
 
-    if ((p = OSSL_PARAM_locate_const(params, OSSL_MAC_PARAM_CIPHER)) != NULL
-        || ((p = OSSL_PARAM_locate_const(params, OSSL_MAC_PARAM_ALGORITHM))
-            != NULL)) {
-        if (p->data_type != OSSL_PARAM_UTF8_STRING)
-            return 0;
+    if (!ossl_prov_cipher_load_from_params(&macctx->cipher, params, ctx))
+        return 0;
 
-        {
-            const char *algoname = p->data;
-            const char *propquery = NULL;
-
-#ifndef FIPS_MODE /* Inside the FIPS module, we don't support engines */
-            ENGINE_finish(macctx->tmpengine);
-            macctx->tmpengine = NULL;
-
-            if ((p = OSSL_PARAM_locate_const(params, OSSL_MAC_PARAM_ENGINE))
-                != NULL) {
-                if (p->data_type != OSSL_PARAM_UTF8_STRING)
-                    return 0;
-
-                macctx->tmpengine = ENGINE_by_id(p->data);
-                if (macctx->tmpengine == NULL)
-                    return 0;
-            }
-#endif
-            if ((p = OSSL_PARAM_locate_const(params,
-                                             OSSL_MAC_PARAM_PROPERTIES))
-                != NULL) {
-                if (p->data_type != OSSL_PARAM_UTF8_STRING)
-                    return 0;
-
-                propquery = p->data;
-            }
-
-            EVP_CIPHER_meth_free(macctx->alloc_cipher);
-
-            macctx->tmpcipher = macctx->alloc_cipher =
-                EVP_CIPHER_fetch(PROV_LIBRARY_CONTEXT_OF(macctx->provctx),
-                                 algoname, propquery);
-
-#ifndef FIPS_MODE /* Inside the FIPS module, we don't support legacy digests */
-            /* TODO(3.0) BEGIN legacy stuff, to be removed */
-            if (macctx->tmpcipher == NULL)
-                macctx->tmpcipher = EVP_get_cipherbyname(algoname);
-            /* TODO(3.0) END of legacy stuff */
-#endif
-
-            if (macctx->tmpcipher == NULL)
-                return 0;
-        }
-    }
     if ((p = OSSL_PARAM_locate_const(params, OSSL_MAC_PARAM_KEY)) != NULL) {
         if (p->data_type != OSSL_PARAM_OCTET_STRING)
             return 0;
 
         if (!CMAC_Init(macctx->ctx, p->data, p->data_size,
-                       macctx->tmpcipher, macctx->tmpengine))
+                       ossl_prov_cipher_cipher(&macctx->cipher),
+                       ossl_prov_cipher_engine(&macctx->cipher)))
             return 0;
 
-        macctx->tmpcipher = NULL;
-        macctx->tmpengine = NULL;
+        ossl_prov_cipher_reset(&macctx->cipher);
     }
     return 1;
 }
@@ -261,5 +187,3 @@ const OSSL_DISPATCH cmac_functions[] = {
     { OSSL_FUNC_MAC_SET_CTX_PARAMS, (void (*)(void))cmac_set_ctx_params },
     { 0, NULL }
 };
-
-#endif
