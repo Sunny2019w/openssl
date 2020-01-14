@@ -8,8 +8,14 @@
  * https://www.openssl.org/source/license.html
  */
 
-#ifndef HEADER_ASYNCERR_H
-# define HEADER_ASYNCERR_H
+#ifndef OPENSSL_ASYNCERR_H
+# define OPENSSL_ASYNCERR_H
+# pragma once
+
+# include <openssl/macros.h>
+# ifndef OPENSSL_NO_DEPRECATED_3_0
+#  define HEADER_ASYNCERR_H
+# endif
 
 # include <openssl/opensslconf.h>
 # include <openssl/symhacks.h>
@@ -23,7 +29,7 @@ int ERR_load_ASYNC_strings(void);
 /*
  * ASYNC function codes.
  */
-# if !OPENSSL_API_3
+# ifndef OPENSSL_NO_DEPRECATED_3_0
 #  define ASYNC_F_ASYNC_CTX_NEW                            0
 #  define ASYNC_F_ASYNC_INIT_THREAD                        0
 #  define ASYNC_F_ASYNC_JOB_NEW                            0

@@ -50,7 +50,7 @@
 #include <openssl/opensslv.h>
 
 #include "internal/cryptlib.h"
-#include "internal/sha.h"
+#include "crypto/sha.h"
 
 #if defined(__i386) || defined(__i386__) || defined(_M_IX86) || \
     defined(__x86_64) || defined(_M_AMD64) || defined(_M_X64) || \
@@ -58,6 +58,14 @@
     defined(__aarch64__) || \
     defined(SHA512_ASM)
 # define SHA512_BLOCK_CAN_MANAGE_UNALIGNED_DATA
+#endif
+
+#if (defined(_WIN32) || defined(_WIN64)) && !defined(__MINGW32__)
+# define U64(C)     C##UI64
+#elif defined(__arch64__)
+# define U64(C)     C##UL
+#else
+# define U64(C)     C##ULL
 #endif
 
 int sha512_224_init(SHA512_CTX *c)

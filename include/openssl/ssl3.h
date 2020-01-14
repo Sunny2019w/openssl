@@ -8,8 +8,14 @@
  * https://www.openssl.org/source/license.html
  */
 
-#ifndef HEADER_SSL3_H
-# define HEADER_SSL3_H
+#ifndef OPENSSL_SSL3_H
+# define OPENSSL_SSL3_H
+# pragma once
+
+# include <openssl/macros.h>
+# ifndef OPENSSL_NO_DEPRECATED_3_0
+#  define HEADER_SSL3_H
+# endif
 
 # include <openssl/comp.h>
 # include <openssl/buffer.h>

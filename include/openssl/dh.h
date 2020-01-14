@@ -7,8 +7,14 @@
  * https://www.openssl.org/source/license.html
  */
 
-#ifndef HEADER_DH_H
-# define HEADER_DH_H
+#ifndef OPENSSL_DH_H
+# define OPENSSL_DH_H
+# pragma once
+
+# include <openssl/macros.h>
+# ifndef OPENSSL_NO_DEPRECATED_3_0
+#  define HEADER_DH_H
+# endif
 
 # include <openssl/opensslconf.h>
 
@@ -16,8 +22,8 @@
 # include <openssl/e_os2.h>
 # include <openssl/bio.h>
 # include <openssl/asn1.h>
-# include <openssl/ossl_typ.h>
-# if !OPENSSL_API_1_1_0
+# include <openssl/types.h>
+# ifndef OPENSSL_NO_DEPRECATED_1_1_0
 #  include <openssl/bn.h>
 # endif
 # include <openssl/dherr.h>
@@ -34,7 +40,7 @@ extern "C" {
 
 # define DH_FLAG_CACHE_MONT_P     0x01
 
-# if !OPENSSL_API_1_1_0
+# ifndef OPENSSL_NO_DEPRECATED_1_1_0
 /*
  * Does nothing. Previously this switched off constant time behaviour.
  */

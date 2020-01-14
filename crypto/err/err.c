@@ -13,19 +13,19 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
-#include "internal/cryptlib_int.h"
+#include "crypto/cryptlib.h"
 #include "internal/err.h"
-#include "internal/err_int.h"
+#include "crypto/err.h"
 #include <openssl/err.h>
 #include <openssl/crypto.h>
 #include <openssl/buffer.h>
 #include <openssl/bio.h>
 #include <openssl/opensslconf.h>
 #include "internal/thread_once.h"
-#include "internal/ctype.h"
-#include "internal/constant_time_locl.h"
+#include "crypto/ctype.h"
+#include "internal/constant_time.h"
 #include "e_os.h"
-#include "err_locl.h"
+#include "err_local.h"
 
 /* Forward declaration in case it's not published because of configuration */
 ERR_STATE *ERR_get_state(void);
@@ -70,10 +70,12 @@ static ERR_STRING_DATA ERR_str_libraries[] = {
     {ERR_PACK(ERR_LIB_HMAC, 0, 0), "HMAC routines"},
     {ERR_PACK(ERR_LIB_CT, 0, 0), "CT routines"},
     {ERR_PACK(ERR_LIB_ASYNC, 0, 0), "ASYNC routines"},
+    {ERR_PACK(ERR_LIB_KDF, 0, 0), "KDF routines"},
     {ERR_PACK(ERR_LIB_OSSL_STORE, 0, 0), "STORE routines"},
     {ERR_PACK(ERR_LIB_SM2, 0, 0), "SM2 routines"},
     {ERR_PACK(ERR_LIB_ESS, 0, 0), "ESS routines"},
     {ERR_PACK(ERR_LIB_PROV, 0, 0), "Provider routines"},
+    {ERR_PACK(ERR_LIB_OSSL_SERIALIZER, 0, 0), "SERIALIZER routines"},
     {0, NULL},
 };
 
@@ -110,6 +112,8 @@ static ERR_STRING_DATA ERR_str_reasons[] = {
     {ERR_R_DISABLED, "called a function that was disabled at compile-time"},
     {ERR_R_INIT_FAIL, "init fail"},
     {ERR_R_OPERATION_FAIL, "operation fail"},
+    {ERR_R_INVALID_PROVIDER_FUNCTIONS, "invalid provider functions"},
+    {ERR_R_INTERRUPTED_OR_CANCELLED, "interrupted or cancelled"},
 
     {0, NULL},
 };
@@ -407,7 +411,7 @@ unsigned long ERR_get_error_all(const char **file, int *line,
     return get_error_values(EV_POP, file, line, func, data, flags);
 }
 
-#if !OPENSSL_API_3
+#ifndef OPENSSL_NO_DEPRECATED_3_0
 unsigned long ERR_get_error_line_data(const char **file, int *line,
                                       const char **data, int *flags)
 {
@@ -442,7 +446,7 @@ unsigned long ERR_peek_error_all(const char **file, int *line,
     return get_error_values(EV_PEEK, file, line, func, data, flags);
 }
 
-#if !OPENSSL_API_3
+#ifndef OPENSSL_NO_DEPRECATED_3_0
 unsigned long ERR_peek_error_line_data(const char **file, int *line,
                                        const char **data, int *flags)
 {
@@ -477,7 +481,7 @@ unsigned long ERR_peek_last_error_all(const char **file, int *line,
     return get_error_values(EV_PEEK_LAST, file, line, func, data, flags);
 }
 
-#if !OPENSSL_API_3
+#ifndef OPENSSL_NO_DEPRECATED_3_0
 unsigned long ERR_peek_last_error_line_data(const char **file, int *line,
                                             const char **data, int *flags)
 {
@@ -533,35 +537,30 @@ static unsigned long get_error_values(ERR_GET_ACTION g,
         es->err_buffer[i] = 0;
     }
 
-    if (file != NULL && line != NULL) {
-        if (es->err_file[i] == NULL) {
-            *file = "NA";
-            *line = 0;
-        } else {
-            *file = es->err_file[i];
-            *line = es->err_line[i];
-        }
+    if (file != NULL) {
+        *file = es->err_file[i];
+        if (*file == NULL)
+            *file = "";
     }
-
+    if (line != NULL)
+        *line = es->err_line[i];
     if (func != NULL) {
         *func = es->err_func[i];
         if (*func == NULL)
-            *func = "N/A";
+            *func = "";
     }
-
+    if (flags != NULL)
+        *flags = es->err_data_flags[i];
     if (data == NULL) {
         if (g == EV_POP) {
             err_clear_data(es, i, 0);
         }
     } else {
-        if (es->err_data[i] == NULL) {
+        *data = es->err_data[i];
+        if (*data == NULL) {
             *data = "";
             if (flags != NULL)
                 *flags = 0;
-        } else {
-            *data = es->err_data[i];
-            if (flags != NULL)
-                *flags = es->err_data_flags[i];
         }
     }
     return ret;
@@ -626,7 +625,7 @@ const char *ERR_lib_error_string(unsigned long e)
     return ((p == NULL) ? NULL : p->string);
 }
 
-#if !OPENSSL_API_3
+#ifndef OPENSSL_NO_DEPRECATED_3_0
 const char *ERR_func_error_string(unsigned long e)
 {
     return NULL;
@@ -646,7 +645,7 @@ const char *ERR_reason_error_string(unsigned long e)
     r = ERR_GET_REASON(e);
     d.error = ERR_PACK(l, 0, r);
     p = int_err_get_item(&d);
-    if (!p) {
+    if (p == NULL) {
         d.error = ERR_PACK(0, 0, r);
         p = int_err_get_item(&d);
     }
@@ -664,13 +663,13 @@ static void err_delete_thread_state(void *arg)
     ERR_STATE_free(state);
 }
 
-#if !OPENSSL_API_1_1_0
+#ifndef OPENSSL_NO_DEPRECATED_1_1_0
 void ERR_remove_thread_state(void *dummy)
 {
 }
 #endif
 
-#if !OPENSSL_API_1_0_0
+#ifndef OPENSSL_NO_DEPRECATED_1_0_0
 void ERR_remove_state(unsigned long pid)
 {
 }
@@ -721,7 +720,7 @@ ERR_STATE *err_get_state_int(void)
     return state;
 }
 
-#if !OPENSSL_API_3
+#ifndef OPENSSL_NO_DEPRECATED_3_0
 ERR_STATE *ERR_get_state(void)
 {
     return err_get_state_int();

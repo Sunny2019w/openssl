@@ -95,37 +95,26 @@ typedef enum OPTION_choice {
 } OPTION_CHOICE;
 
 const OPTIONS req_options[] = {
+    OPT_SECTION("General"),
     {"help", OPT_HELP, '-', "Display this summary"},
-    {"inform", OPT_INFORM, 'F', "Input format - DER or PEM"},
-    {"outform", OPT_OUTFORM, 'F', "Output format - DER or PEM"},
+#ifndef OPENSSL_NO_ENGINE
+    {"engine", OPT_ENGINE, 's', "Use engine, possibly a hardware device"},
+    {"keygen_engine", OPT_KEYGEN_ENGINE, 's',
+     "Specify engine to be used for key generation operations"},
+#endif
     {"in", OPT_IN, '<', "Input file"},
-    {"out", OPT_OUT, '>', "Output file"},
-    {"key", OPT_KEY, 's', "Private key to use"},
-    {"keyform", OPT_KEYFORM, 'f', "Key file format"},
-    {"pubkey", OPT_PUBKEY, '-', "Output public key"},
+    {"inform", OPT_INFORM, 'F', "Input format - DER or PEM"},
+    {"verify", OPT_VERIFY, '-', "Verify signature on REQ"},
+
+    OPT_SECTION("Certificate"),
     {"new", OPT_NEW, '-', "New request"},
     {"config", OPT_CONFIG, '<', "Request template file"},
-    {"keyout", OPT_KEYOUT, '>', "File to send the key to"},
-    {"passin", OPT_PASSIN, 's', "Private key password source"},
-    {"passout", OPT_PASSOUT, 's', "Output file pass phrase source"},
-    OPT_R_OPTIONS,
-    {"newkey", OPT_NEWKEY, 's', "Specify as type:bits"},
-    {"pkeyopt", OPT_PKEYOPT, 's', "Public key options as opt:value"},
-    {"sigopt", OPT_SIGOPT, 's', "Signature parameter in n:v form"},
-    {"batch", OPT_BATCH, '-',
-     "Do not ask anything during request generation"},
-    {"newhdr", OPT_NEWHDR, '-', "Output \"NEW\" in the header lines"},
-    {"modulus", OPT_MODULUS, '-', "RSA modulus"},
-    {"verify", OPT_VERIFY, '-', "Verify signature on REQ"},
-    {"nodes", OPT_NODES, '-', "Don't encrypt the output key"},
-    {"noout", OPT_NOOUT, '-', "Do not output REQ"},
-    {"verbose", OPT_VERBOSE, '-', "Verbose output"},
     {"utf8", OPT_UTF8, '-', "Input characters are UTF8 (default ASCII)"},
     {"nameopt", OPT_NAMEOPT, 's', "Various certificate name options"},
     {"reqopt", OPT_REQOPT, 's', "Various request text options"},
     {"text", OPT_TEXT, '-', "Text form of request"},
     {"x509", OPT_X509, '-',
-     "Output a x509 structure instead of a cert request"},
+     "Output an x509 structure instead of a cert request"},
     {OPT_MORE_STR, 1, 1, "(Required by some CA's)"},
     {"subj", OPT_SUBJ, 's', "Set or modify request subject"},
     {"subject", OPT_SUBJECT, '-', "Output the request's subject"},
@@ -140,18 +129,37 @@ const OPTIONS req_options[] = {
     {"reqexts", OPT_REQEXTS, 's',
      "Request extension section (override value in config file)"},
     {"precert", OPT_PRECERT, '-', "Add a poison extension (implies -new)"},
+
+    OPT_SECTION("Keys and Signing"),
+    {"key", OPT_KEY, 's', "Private key to use"},
+    {"keyform", OPT_KEYFORM, 'f', "Key file format"},
+    {"pubkey", OPT_PUBKEY, '-', "Output public key"},
+    {"keyout", OPT_KEYOUT, '>', "File to send the key to"},
+    {"passin", OPT_PASSIN, 's', "Private key password source"},
+    {"passout", OPT_PASSOUT, 's', "Output file pass phrase source"},
+    {"newkey", OPT_NEWKEY, 's', "Specify as type:bits"},
+    {"pkeyopt", OPT_PKEYOPT, 's', "Public key options as opt:value"},
+    {"sigopt", OPT_SIGOPT, 's', "Signature parameter in n:v form"},
     {"", OPT_MD, '-', "Any supported digest"},
-#ifndef OPENSSL_NO_ENGINE
-    {"engine", OPT_ENGINE, 's', "Use engine, possibly a hardware device"},
-    {"keygen_engine", OPT_KEYGEN_ENGINE, 's',
-     "Specify engine to be used for key generation operations"},
-#endif
 #ifndef OPENSSL_NO_SM2
     {"sm2-id", OPT_SM2ID, 's',
      "Specify an ID string to verify an SM2 certificate request"},
     {"sm2-hex-id", OPT_SM2HEXID, 's',
      "Specify a hex ID string to verify an SM2 certificate request"},
 #endif
+
+    OPT_SECTION("Output"),
+    {"out", OPT_OUT, '>', "Output file"},
+    {"outform", OPT_OUTFORM, 'F', "Output format - DER or PEM"},
+    {"batch", OPT_BATCH, '-',
+     "Do not ask anything during request generation"},
+    {"verbose", OPT_VERBOSE, '-', "Verbose output"},
+    {"nodes", OPT_NODES, '-', "Don't encrypt the output key"},
+    {"noout", OPT_NOOUT, '-', "Do not output REQ"},
+    {"newhdr", OPT_NEWHDR, '-', "Output \"NEW\" in the header lines"},
+    {"modulus", OPT_MODULUS, '-', "RSA modulus"},
+
+    OPT_R_OPTIONS,
     {NULL}
 };
 
@@ -206,9 +214,12 @@ static int duplicated(LHASH_OF(OPENSSL_STRING) *addexts, char *kv)
     *p = '\0';
 
     /* Finally have a clean "key"; see if it's there [by attempt to add it]. */
-    if ((p = (char *)lh_OPENSSL_STRING_insert(addexts, (OPENSSL_STRING*)kv))
-        != NULL || lh_OPENSSL_STRING_error(addexts)) {
-        OPENSSL_free(p != NULL ? p : kv);
+    p = (char *)lh_OPENSSL_STRING_insert(addexts, (OPENSSL_STRING*)kv);
+    if (p != NULL) {
+        OPENSSL_free(p);
+        return 1;
+    } else if (lh_OPENSSL_STRING_error(addexts)) {
+        OPENSSL_free(kv);
         return -1;
     }
 
@@ -325,9 +336,10 @@ int req_main(int argc, char **argv)
             newreq = 1;
             break;
         case OPT_PKEYOPT:
-            if (!pkeyopts)
+            if (pkeyopts == NULL)
                 pkeyopts = sk_OPENSSL_STRING_new_null();
-            if (!pkeyopts || !sk_OPENSSL_STRING_push(pkeyopts, opt_arg()))
+            if (pkeyopts == NULL
+                    || !sk_OPENSSL_STRING_push(pkeyopts, opt_arg()))
                 goto opthelp;
             break;
         case OPT_SIGOPT:
@@ -467,12 +479,14 @@ int req_main(int argc, char **argv)
 
     if (verbose)
         BIO_printf(bio_err, "Using configuration from %s\n", template);
-    req_conf = app_load_config(template);
+    if ((req_conf = app_load_config(template)) == NULL)
+        goto end;
     if (addext_bio) {
         if (verbose)
             BIO_printf(bio_err,
                        "Using additional configuration from command line\n");
-        addext_conf = app_load_config_bio(addext_bio, NULL);
+        if ((addext_conf = app_load_config_bio(addext_bio, NULL)) == NULL)
+            goto end;
     }
     if (template != default_config_file && !app_load_modules(req_conf))
         goto end;
@@ -1751,15 +1765,19 @@ int do_X509_sign(X509 *x, EVP_PKEY *pkey, const EVP_MD *md,
 #endif
 
     rv = do_sign_init(mctx, pkey, md, sigopts);
-    if (rv > 0)
+    if (rv > 0) {
         rv = X509_sign_ctx(x, mctx);
 #ifndef OPENSSL_NO_SM2
-    /* only in SM2 case we need to free the pctx explicitly */
-    if (ec_pkey_is_sm2(pkey)) {
-        pctx = EVP_MD_CTX_pkey_ctx(mctx);
-        EVP_PKEY_CTX_free(pctx);
-    }
+        /*
+         * only in SM2 case we need to free the pctx explicitly
+         * if do_sign_init() fails, pctx is already freed in it
+         */
+        if (ec_pkey_is_sm2(pkey)) {
+            pctx = EVP_MD_CTX_pkey_ctx(mctx);
+            EVP_PKEY_CTX_free(pctx);
+        }
 #endif
+    }
     EVP_MD_CTX_free(mctx);
     return rv > 0 ? 1 : 0;
 }
@@ -1774,15 +1792,19 @@ int do_X509_REQ_sign(X509_REQ *x, EVP_PKEY *pkey, const EVP_MD *md,
 #endif
 
     rv = do_sign_init(mctx, pkey, md, sigopts);
-    if (rv > 0)
+    if (rv > 0) {
         rv = X509_REQ_sign_ctx(x, mctx);
 #ifndef OPENSSL_NO_SM2
-    /* only in SM2 case we need to free the pctx explicitly */
-    if (ec_pkey_is_sm2(pkey)) {
-        pctx = EVP_MD_CTX_pkey_ctx(mctx);
-        EVP_PKEY_CTX_free(pctx);
-    }
+        /*
+         * only in SM2 case we need to free the pctx explicitly
+         * if do_sign_init() fails, pctx is already freed in it
+         */
+        if (ec_pkey_is_sm2(pkey)) {
+            pctx = EVP_MD_CTX_pkey_ctx(mctx);
+            EVP_PKEY_CTX_free(pctx);
+        }
 #endif
+    }
     EVP_MD_CTX_free(mctx);
     return rv > 0 ? 1 : 0;
 }
@@ -1797,15 +1819,19 @@ int do_X509_CRL_sign(X509_CRL *x, EVP_PKEY *pkey, const EVP_MD *md,
 #endif
 
     rv = do_sign_init(mctx, pkey, md, sigopts);
-    if (rv > 0)
+    if (rv > 0) {
         rv = X509_CRL_sign_ctx(x, mctx);
 #ifndef OPENSSL_NO_SM2
-    /* only in SM2 case we need to free the pctx explicitly */
-    if (ec_pkey_is_sm2(pkey)) {
-        pctx = EVP_MD_CTX_pkey_ctx(mctx);
-        EVP_PKEY_CTX_free(pctx);
-    }
+        /*
+         * only in SM2 case we need to free the pctx explicitly
+         * if do_sign_init() fails, no need to double free pctx
+         */
+        if (ec_pkey_is_sm2(pkey)) {
+            pctx = EVP_MD_CTX_pkey_ctx(mctx);
+            EVP_PKEY_CTX_free(pctx);
+        }
 #endif
+    }
     EVP_MD_CTX_free(mctx);
     return rv > 0 ? 1 : 0;
 }

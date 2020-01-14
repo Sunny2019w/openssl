@@ -7,6 +7,7 @@
  * https://www.openssl.org/source/license.html
  */
 
+#include <openssl/evp.h>
 #include "internal/namemap.h"
 #include "testutil.h"
 
@@ -17,15 +18,15 @@
 
 static int test_namemap(OSSL_NAMEMAP *nm)
 {
-    int num1 = ossl_namemap_add(nm, 0, NAME1);
-    int num2 = ossl_namemap_add(nm, 0, NAME2);
-    int num3 = ossl_namemap_add(nm, num1, ALIAS1);
-    int num4 = ossl_namemap_add(nm, 0, ALIAS1_UC);
+    int num1 = ossl_namemap_add_name(nm, 0, NAME1);
+    int num2 = ossl_namemap_add_name(nm, 0, NAME2);
+    int num3 = ossl_namemap_add_name(nm, num1, ALIAS1);
+    int num4 = ossl_namemap_add_name(nm, 0, ALIAS1_UC);
     int check1 = ossl_namemap_name2num(nm, NAME1);
     int check2 = ossl_namemap_name2num(nm, NAME2);
     int check3 = ossl_namemap_name2num(nm, ALIAS1);
     int check4 = ossl_namemap_name2num(nm, ALIAS1_UC);
-    int false1 = ossl_namemap_name2num(nm, "foo");
+    int false1 = ossl_namemap_name2num(nm, "cookie");
 
     return TEST_int_ne(num1, 0)
         && TEST_int_ne(num2, 0)
@@ -55,9 +56,64 @@ static int test_namemap_stored(void)
         && test_namemap(nm);
 }
 
+/*
+ * Test that EVP_get_digestbyname() will use the namemap when it can't find
+ * entries in the legacy method database.
+ */
+static int test_digestbyname(void)
+{
+    int id;
+    OSSL_NAMEMAP *nm = ossl_namemap_stored(NULL);
+    const EVP_MD *sha256, *foo;
+
+    id = ossl_namemap_add_name(nm, 0, "SHA256");
+    if (!TEST_int_ne(id, 0))
+        return 0;
+    if (!TEST_int_eq(ossl_namemap_add_name(nm, id, "foo"), id))
+        return 0;
+
+    sha256 = EVP_get_digestbyname("SHA256");
+    if (!TEST_ptr(sha256))
+        return 0;
+    foo = EVP_get_digestbyname("foo");
+    if (!TEST_ptr_eq(sha256, foo))
+        return 0;
+
+    return 1;
+}
+
+/*
+ * Test that EVP_get_cipherbyname() will use the namemap when it can't find
+ * entries in the legacy method database.
+ */
+static int test_cipherbyname(void)
+{
+    int id;
+    OSSL_NAMEMAP *nm = ossl_namemap_stored(NULL);
+    const EVP_CIPHER *aes128, *bar;
+
+    id = ossl_namemap_add_name(nm, 0, "AES-128-CBC");
+    if (!TEST_int_ne(id, 0))
+        return 0;
+    if (!TEST_int_eq(ossl_namemap_add_name(nm, id, "bar"), id))
+        return 0;
+
+    aes128 = EVP_get_cipherbyname("AES-128-CBC");
+    if (!TEST_ptr(aes128))
+        return 0;
+    bar = EVP_get_cipherbyname("bar");
+    if (!TEST_ptr_eq(aes128, bar))
+        return 0;
+
+    return 1;
+}
+
+
 int setup_tests(void)
 {
     ADD_TEST(test_namemap_independent);
     ADD_TEST(test_namemap_stored);
+    ADD_TEST(test_digestbyname);
+    ADD_TEST(test_cipherbyname);
     return 1;
 }

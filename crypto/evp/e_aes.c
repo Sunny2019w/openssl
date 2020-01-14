@@ -7,6 +7,12 @@
  * https://www.openssl.org/source/license.html
  */
 
+/*
+ * This file uses the low level AES functions (which are deprecated for
+ * non-internal use) in order to implement the EVP AES ciphers.
+ */
+#include "internal/deprecated.h"
+
 #include <string.h>
 #include <assert.h>
 #include <openssl/opensslconf.h>
@@ -16,12 +22,12 @@
 #include <openssl/aes.h>
 #include <openssl/rand.h>
 #include <openssl/cmac.h>
-#include "internal/evp_int.h"
+#include "crypto/evp.h"
 #include "internal/cryptlib.h"
-#include "internal/modes_int.h"
-#include "internal/siv_int.h"
-#include "internal/ciphermode_platform.h"
-#include "evp_locl.h"
+#include "crypto/modes.h"
+#include "crypto/siv.h"
+#include "crypto/aes_platform.h"
+#include "evp_local.h"
 
 typedef struct {
     union {
@@ -130,8 +136,6 @@ static void ctr64_inc(unsigned char *counter)
 
 #if defined(AESNI_CAPABLE)
 # if defined(__x86_64) || defined(__x86_64__) || defined(_M_AMD64) || defined(_M_X64)
-#  define AES_gcm_encrypt aesni_gcm_encrypt
-#  define AES_gcm_decrypt aesni_gcm_decrypt
 #  define AES_GCM_ASM2(gctx)      (gctx->gcm.block==(block128_f)aesni_encrypt && \
                                  gctx->gcm.ghash==gcm_ghash_avx)
 #  undef AES_GCM_ASM2          /* minor size optimization */
@@ -915,7 +919,7 @@ typedef struct {
                 } icv;
                 unsigned char k[32];
             } kmac_param;
-            /* KMAC-AES paramater block - end */
+            /* KMAC-AES parameter block - end */
 
             union {
                 unsigned long long g[2];
@@ -3228,7 +3232,7 @@ static int aes_xts_cipher(EVP_CIPHER_CTX *ctx, unsigned char *out,
         return 0;
 
     /*
-     * Impose a limit of 2^20 blocks per data unit as specifed by
+     * Impose a limit of 2^20 blocks per data unit as specified by
      * IEEE Std 1619-2018.  The earlier and obsolete IEEE Std 1619-2007
      * indicated that this was a SHOULD NOT rather than a MUST NOT.
      * NIST SP 800-38E mandates the same limit.
@@ -3744,7 +3748,7 @@ static int aes_ocb_ctrl(EVP_CIPHER_CTX *c, int type, int arg, void *ptr)
         return 1;
 
     case EVP_CTRL_AEAD_SET_TAG:
-        if (!ptr) {
+        if (ptr == NULL) {
             /* Tag len must be 0 to 16 */
             if (arg < 0 || arg > 16)
                 return 0;

@@ -17,7 +17,7 @@
 #include <openssl/rand.h>
 #include <openssl/evp.h>
 
-#include "crmf_int.h"
+#include "crmf_local.h"
 
 /* explicit #includes not strictly needed since implied by the above: */
 #include <openssl/asn1t.h>
@@ -41,20 +41,16 @@ OSSL_CRMF_PBMPARAMETER *OSSL_CRMF_pbmp_new(size_t slen, int owfnid,
     OSSL_CRMF_PBMPARAMETER *pbm = NULL;
     unsigned char *salt = NULL;
 
-    if ((pbm = OSSL_CRMF_PBMPARAMETER_new()) == NULL) {
-        CRMFerr(CRMF_F_OSSL_CRMF_PBMP_NEW, ERR_R_MALLOC_FAILURE);
+    if ((pbm = OSSL_CRMF_PBMPARAMETER_new()) == NULL)
         goto err;
-    }
 
     /*
      * salt contains a randomly generated value used in computing the key
      * of the MAC process.  The salt SHOULD be at least 8 octets (64
      * bits) long.
      */
-    if ((salt = OPENSSL_malloc(slen)) == NULL) {
-        CRMFerr(CRMF_F_OSSL_CRMF_PBMP_NEW, ERR_R_MALLOC_FAILURE);
+    if ((salt = OPENSSL_malloc(slen)) == NULL)
         goto err;
-    }
     if (RAND_bytes(salt, (int)slen) <= 0) {
         CRMFerr(CRMF_F_OSSL_CRMF_PBMP_NEW, CRMF_R_FAILURE_OBTAINING_RANDOM);
         goto err;
@@ -137,18 +133,15 @@ int OSSL_CRMF_pbm_new(const OSSL_CRMF_PBMPARAMETER *pbmp,
     int ok = 0;
     EVP_MAC *mac = NULL;
     EVP_MAC_CTX *mctx = NULL;
-    OSSL_PARAM macparams[3] =
-        { OSSL_PARAM_END, OSSL_PARAM_END, OSSL_PARAM_END };
+    OSSL_PARAM macparams[3] = {OSSL_PARAM_END, OSSL_PARAM_END, OSSL_PARAM_END};
 
     if (out == NULL || pbmp == NULL || pbmp->mac == NULL
             || pbmp->mac->algorithm == NULL || msg == NULL || sec == NULL) {
         CRMFerr(CRMF_F_OSSL_CRMF_PBM_NEW, CRMF_R_NULL_ARGUMENT);
         goto err;
     }
-    if ((mac_res = OPENSSL_malloc(EVP_MAX_MD_SIZE)) == NULL) {
-        CRMFerr(CRMF_F_OSSL_CRMF_PBM_NEW, ERR_R_MALLOC_FAILURE);
+    if ((mac_res = OPENSSL_malloc(EVP_MAX_MD_SIZE)) == NULL)
         goto err;
-    }
 
     /*
      * owf identifies the hash algorithm and associated parameters used to
@@ -160,10 +153,8 @@ int OSSL_CRMF_pbm_new(const OSSL_CRMF_PBMPARAMETER *pbmp,
         goto err;
     }
 
-    if ((ctx = EVP_MD_CTX_new()) == NULL) {
-        CRMFerr(CRMF_F_OSSL_CRMF_PBM_NEW, ERR_R_MALLOC_FAILURE);
+    if ((ctx = EVP_MD_CTX_new()) == NULL)
         goto err;
-    }
 
     /* compute the basekey of the salted secret */
     if (!EVP_DigestInit_ex(ctx, m, NULL))
@@ -201,16 +192,15 @@ int OSSL_CRMF_pbm_new(const OSSL_CRMF_PBMPARAMETER *pbmp,
     mac_nid = OBJ_obj2nid(pbmp->mac->algorithm);
 
     if (!EVP_PBE_find(EVP_PBE_TYPE_PRF, mac_nid, NULL, &hmac_md_nid, NULL)
-        || ((mdname = OBJ_nid2sn(hmac_md_nid)) == NULL)) {
+            || (mdname = OBJ_nid2sn(hmac_md_nid)) == NULL) {
         CRMFerr(CRMF_F_OSSL_CRMF_PBM_NEW, CRMF_R_UNSUPPORTED_ALGORITHM);
         goto err;
     }
 
-    macparams[0] =
-        OSSL_PARAM_construct_utf8_string(OSSL_MAC_PARAM_DIGEST,
-                                         (char *)mdname, 0);
-    macparams[1] =
-        OSSL_PARAM_construct_octet_string(OSSL_MAC_PARAM_KEY, basekey, bklen);
+    macparams[0] = OSSL_PARAM_construct_utf8_string(OSSL_MAC_PARAM_DIGEST,
+                                                    (char *)mdname, 0);
+    macparams[1] = OSSL_PARAM_construct_octet_string(OSSL_MAC_PARAM_KEY,
+                                                     basekey, bklen);
     if ((mac = EVP_MAC_fetch(NULL, "HMAC", NULL)) == NULL
             || (mctx = EVP_MAC_CTX_new(mac)) == NULL
             || !EVP_MAC_CTX_set_params(mctx, macparams)

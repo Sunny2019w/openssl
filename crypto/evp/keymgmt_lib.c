@@ -9,62 +9,32 @@
 
 #include "internal/cryptlib.h"
 #include "internal/nelem.h"
-#include "internal/evp_int.h"
-#include "internal/asn1_int.h"
+#include "crypto/evp.h"
+#include "crypto/asn1.h"
+#include "internal/core.h"
 #include "internal/provider.h"
-#include "evp_locl.h"
+#include "evp_local.h"
 
-static OSSL_PARAM *paramdefs_to_params(const OSSL_PARAM *paramdefs)
+struct import_data_st {
+    void *provctx;
+    void *(*importfn)(void *provctx, const OSSL_PARAM params[]);
+
+    /* Result */
+    void *provdata;
+};
+
+static int try_import(const OSSL_PARAM params[], void *arg)
 {
-    size_t cnt;
-    const OSSL_PARAM *p;
-    OSSL_PARAM *params, *q;
+    struct import_data_st *data = arg;
 
-    for (cnt = 1, p = paramdefs; p->key != NULL; p++, cnt++)
-        continue;
-
-    params = OPENSSL_zalloc(cnt * sizeof(*params));
-
-    for (p = paramdefs, q = params; ; p++, q++) {
-        *q = *p;
-        if (p->key == NULL)
-            break;
-
-        q->data = NULL;          /* In case the provider used it */
-        q->return_size = 0;
-    }
-
-    return params;
+    data->provdata = data->importfn(data->provctx, params);
+    return data->provdata != NULL;
 }
 
-typedef union align_block_un {
-    OSSL_UNION_ALIGN;
-} ALIGN_BLOCK;
-
-#define ALIGN_SIZE  sizeof(ALIGN_BLOCK)
-
-static void *allocate_params_space(OSSL_PARAM *params)
+void *evp_keymgmt_export_to_provider(EVP_PKEY *pk, EVP_KEYMGMT *keymgmt,
+                                     int want_domainparams)
 {
-    unsigned char *data = NULL;
-    size_t space;
-    OSSL_PARAM *p;
-
-    for (space = 0, p = params; p->key != NULL; p++)
-        space += ((p->return_size + ALIGN_SIZE - 1) / ALIGN_SIZE) * ALIGN_SIZE;
-
-    data = OPENSSL_zalloc(space);
-
-    for (space = 0, p = params; p->key != NULL; p++) {
-        p->data = data + space;
-        space += ((p->return_size + ALIGN_SIZE - 1) / ALIGN_SIZE) * ALIGN_SIZE;
-    }
-
-    return data;
-}
-
-void *evp_keymgmt_export_to_provider(EVP_PKEY *pk, EVP_KEYMGMT *keymgmt)
-{
-    void *provkey = NULL;
+    void *provdata = NULL;
     size_t i, j;
 
     /*
@@ -90,8 +60,9 @@ void *evp_keymgmt_export_to_provider(EVP_PKEY *pk, EVP_KEYMGMT *keymgmt)
     for (i = 0;
          i < OSSL_NELEM(pk->pkeys) && pk->pkeys[i].keymgmt != NULL;
          i++) {
-        if (keymgmt == pk->pkeys[i].keymgmt)
-            return pk->pkeys[i].provkey;
+        if (keymgmt == pk->pkeys[i].keymgmt
+            && want_domainparams == pk->pkeys[i].domainparams)
+            return pk->pkeys[i].provdata;
     }
 
     if (pk->pkey.ptr != NULL) {
@@ -101,11 +72,11 @@ void *evp_keymgmt_export_to_provider(EVP_PKEY *pk, EVP_KEYMGMT *keymgmt)
         if (pk->ameth->export_to == NULL)
             return NULL;
 
-        /* Otherwise, simply use it */
-        provkey = pk->ameth->export_to(pk, keymgmt);
+        /* Otherwise, simply use it. */
+        provdata = pk->ameth->export_to(pk, keymgmt, want_domainparams);
 
         /* Synchronize the dirty count, but only if we exported successfully */
-        if (provkey != NULL)
+        if (provdata != NULL)
             pk->dirty_cnt_copy = pk->ameth->dirty_cnt(pk);
 
     } else {
@@ -116,51 +87,39 @@ void *evp_keymgmt_export_to_provider(EVP_PKEY *pk, EVP_KEYMGMT *keymgmt)
          * the new provider.
          */
 
+        /* Setup for the export callback */
+        struct import_data_st import_data;
+
+        import_data.importfn =
+            want_domainparams ? keymgmt->importdomparams : keymgmt->importkey;
+        import_data.provdata = NULL;
+
         /*
          * If the given keymgmt doesn't have an import function, give up
          */
-        if (keymgmt->importkey == NULL)
+        if (import_data.importfn == NULL)
             return NULL;
 
         for (j = 0; j < i && pk->pkeys[j].keymgmt != NULL; j++) {
-            if (pk->pkeys[j].keymgmt->exportkey != NULL) {
-                const OSSL_PARAM *paramdefs = NULL;
-                OSSL_PARAM *params = NULL;
-                void *data = NULL;
-                void *provctx =
+            int (*exportfn)(void *provctx, OSSL_CALLBACK *cb, void *cbarg) =
+                want_domainparams
+                ? pk->pkeys[j].keymgmt->exportdomparams
+                : pk->pkeys[j].keymgmt->exportkey;
+
+            if (exportfn != NULL) {
+                import_data.provctx =
                     ossl_provider_ctx(EVP_KEYMGMT_provider(keymgmt));
 
-                paramdefs = pk->pkeys[j].keymgmt->exportkey_types();
                 /*
-                 * All params have 'data' set to NULL.  In that case,
-                 * the exportkey call should just fill in 'return_size'
-                 * in all applicable params.
-                 */
-                params = paramdefs_to_params(paramdefs);
-                /* Get 'return_size' filled */
-                pk->pkeys[j].keymgmt->exportkey(pk->pkeys[j].provkey, params);
+                 * The export function calls the callback (try_import), which
+                 * does the import for us.
+                 * Even though we got a success return, we double check that
+                 * we actually got something, just in case some implementation
+                 * forgets to check the return value.
 
-                /*
-                 * Allocate space and assign 'data' to point into the
-                 * data block
                  */
-                data = allocate_params_space(params);
-
-                /*
-                 * Call the exportkey function a second time, to get
-                 * the data filled
-                 */
-                pk->pkeys[j].keymgmt->exportkey(pk->pkeys[j].provkey, params);
-
-                /*
-                 * We should have all the data at this point, so import
-                 * into the new provider and hope to get a key back.
-                 */
-                provkey = keymgmt->importkey(provctx, params);
-                OPENSSL_free(params);
-                OPENSSL_free(data);
-
-                if (provkey != NULL)
+                if (exportfn(pk->pkeys[j].provdata, &try_import, &import_data)
+                    && (provdata = import_data.provdata) != NULL)
                     break;
             }
         }
@@ -173,12 +132,14 @@ void *evp_keymgmt_export_to_provider(EVP_PKEY *pk, EVP_KEYMGMT *keymgmt)
      */
     j = ossl_assert(i < OSSL_NELEM(pk->pkeys));
 
-    if (provkey != NULL) {
+    if (provdata != NULL) {
         EVP_KEYMGMT_up_ref(keymgmt);
         pk->pkeys[i].keymgmt = keymgmt;
-        pk->pkeys[i].provkey = provkey;
+        pk->pkeys[i].provdata = provdata;
+        pk->pkeys[i].domainparams = want_domainparams;
     }
-    return provkey;
+
+    return provdata;
 }
 
 void evp_keymgmt_clear_pkey_cache(EVP_PKEY *pk)
@@ -190,16 +151,37 @@ void evp_keymgmt_clear_pkey_cache(EVP_PKEY *pk)
              i < OSSL_NELEM(pk->pkeys) && pk->pkeys[i].keymgmt != NULL;
              i++) {
             EVP_KEYMGMT *keymgmt = pk->pkeys[i].keymgmt;
-            void *provkey = pk->pkeys[i].provkey;
+            void *provdata = pk->pkeys[i].provdata;
 
             pk->pkeys[i].keymgmt = NULL;
-            pk->pkeys[i].provkey = NULL;
-            keymgmt->freekey(provkey);
+            pk->pkeys[i].provdata = NULL;
+            if (pk->pkeys[i].domainparams)
+                keymgmt->freedomparams(provdata);
+            else
+                keymgmt->freekey(provdata);
             EVP_KEYMGMT_free(keymgmt);
         }
     }
 }
 
+void *evp_keymgmt_fromdata(EVP_PKEY *target, EVP_KEYMGMT *keymgmt,
+                           const OSSL_PARAM params[], int domainparams)
+{
+    void *provctx = ossl_provider_ctx(EVP_KEYMGMT_provider(keymgmt));
+    void *provdata = domainparams
+        ? keymgmt->importdomparams(provctx, params)
+        : keymgmt->importkey(provctx, params);
+
+    evp_keymgmt_clear_pkey_cache(target);
+    if (provdata != NULL) {
+        EVP_KEYMGMT_up_ref(keymgmt);
+        target->pkeys[0].keymgmt = keymgmt;
+        target->pkeys[0].provdata = provdata;
+        target->pkeys[0].domainparams = domainparams;
+    }
+
+    return provdata;
+}
 
 /* internal functions */
 /* TODO(3.0) decide if these should be public or internal */
@@ -226,9 +208,10 @@ void evp_keymgmt_freedomparams(const EVP_KEYMGMT *keymgmt,
 }
 
 int evp_keymgmt_exportdomparams(const EVP_KEYMGMT *keymgmt,
-                                void *provdomparams, OSSL_PARAM params[])
+                                void *provdomparams,
+                                OSSL_CALLBACK *param_cb, void *cbarg)
 {
-    return keymgmt->exportdomparams(provdomparams, params);
+    return keymgmt->exportdomparams(provdomparams, param_cb, cbarg);
 }
 
 const OSSL_PARAM *evp_keymgmt_importdomparam_types(const EVP_KEYMGMT *keymgmt)
@@ -236,6 +219,10 @@ const OSSL_PARAM *evp_keymgmt_importdomparam_types(const EVP_KEYMGMT *keymgmt)
     return keymgmt->importdomparam_types();
 }
 
+/*
+ * TODO(v3.0) investigate if we need this function.  'openssl provider' may
+ * be a caller...
+ */
 const OSSL_PARAM *evp_keymgmt_exportdomparam_types(const EVP_KEYMGMT *keymgmt)
 {
     return keymgmt->exportdomparam_types();
@@ -272,9 +259,9 @@ void evp_keymgmt_freekey(const EVP_KEYMGMT *keymgmt, void *provkey)
 }
 
 int evp_keymgmt_exportkey(const EVP_KEYMGMT *keymgmt, void *provkey,
-                          OSSL_PARAM params[])
+                          OSSL_CALLBACK *param_cb, void *cbarg)
 {
-    return keymgmt->exportkey(provkey, params);
+    return keymgmt->exportkey(provkey, param_cb, cbarg);
 }
 
 const OSSL_PARAM *evp_keymgmt_importkey_types(const EVP_KEYMGMT *keymgmt)
@@ -282,6 +269,10 @@ const OSSL_PARAM *evp_keymgmt_importkey_types(const EVP_KEYMGMT *keymgmt)
     return keymgmt->importkey_types();
 }
 
+/*
+ * TODO(v3.0) investigate if we need this function.  'openssl provider' may
+ * be a caller...
+ */
 const OSSL_PARAM *evp_keymgmt_exportkey_types(const EVP_KEYMGMT *keymgmt)
 {
     return keymgmt->exportkey_types();

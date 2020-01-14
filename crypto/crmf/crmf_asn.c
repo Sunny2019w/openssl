@@ -13,7 +13,7 @@
 
 #include <openssl/asn1t.h>
 
-#include "crmf_int.h"
+#include "crmf_local.h"
 
 /* explicit #includes not strictly needed since implied by the above: */
 #include <openssl/crmf.h>
@@ -235,6 +235,5 @@ IMPLEMENT_ASN1_FUNCTIONS(OSSL_CRMF_MSG)
 ASN1_ITEM_TEMPLATE(OSSL_CRMF_MSGS) =
     ASN1_EX_TEMPLATE_TYPE(ASN1_TFLG_SEQUENCE_OF, 0,
                           OSSL_CRMF_MSGS, OSSL_CRMF_MSG)
-    ASN1_ITEM_TEMPLATE_END(OSSL_CRMF_MSGS)
+ASN1_ITEM_TEMPLATE_END(OSSL_CRMF_MSGS)
 IMPLEMENT_ASN1_FUNCTIONS(OSSL_CRMF_MSGS)
-

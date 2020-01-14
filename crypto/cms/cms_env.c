@@ -13,10 +13,10 @@
 #include <openssl/x509v3.h>
 #include <openssl/err.h>
 #include <openssl/cms.h>
-#include <openssl/aes.h>
-#include "cms_lcl.h"
-#include "internal/asn1_int.h"
-#include "internal/evp_int.h"
+#include <openssl/evp.h>
+#include "cms_local.h"
+#include "crypto/asn1.h"
+#include "crypto/evp.h"
 
 /* CMS EnvelopedData Utilities */
 
@@ -56,14 +56,15 @@ int cms_env_asn1_ctrl(CMS_RecipientInfo *ri, int cmd)
         pkey = ri->d.ktri->pkey;
     else if (ri->type == CMS_RECIPINFO_AGREE) {
         EVP_PKEY_CTX *pctx = ri->d.kari->pctx;
-        if (!pctx)
+
+        if (pctx == NULL)
             return 0;
         pkey = EVP_PKEY_CTX_get0_pkey(pctx);
-        if (!pkey)
+        if (pkey == NULL)
             return 0;
     } else
         return 0;
-    if (!pkey->ameth || !pkey->ameth->pkey_ctrl)
+    if (pkey->ameth == NULL || pkey->ameth->pkey_ctrl == NULL)
         return 1;
     i = pkey->ameth->pkey_ctrl(pkey, ASN1_PKEY_CTRL_CMS_ENVELOPE, cmd, ri);
     if (i == -2) {
@@ -191,7 +192,7 @@ CMS_RecipientInfo *CMS_add1_recipient_cert(CMS_ContentInfo *cms,
         goto merr;
 
     pk = X509_get0_pubkey(recip);
-    if (!pk) {
+    if (pk == NULL) {
         CMSerr(CMS_F_CMS_ADD1_RECIPIENT_CERT, CMS_R_ERROR_GETTING_PUBLIC_KEY);
         goto err;
     }
@@ -624,6 +625,23 @@ int CMS_RecipientInfo_set0_key(CMS_RecipientInfo *ri,
     return 1;
 }
 
+static const EVP_CIPHER *cms_get_key_wrap_cipher(size_t keylen)
+{
+    switch(keylen) {
+    case 16:
+        return EVP_aes_128_wrap();
+
+    case 24:
+        return EVP_aes_192_wrap();
+
+    case 32:
+        return EVP_aes_256_wrap();
+    }
+
+    return NULL;
+}
+
+
 /* Encrypt content key in KEK recipient info */
 
 static int cms_RecipientInfo_kekri_encrypt(const CMS_ContentInfo *cms,
@@ -631,36 +649,50 @@ static int cms_RecipientInfo_kekri_encrypt(const CMS_ContentInfo *cms,
 {
     CMS_EncryptedContentInfo *ec;
     CMS_KEKRecipientInfo *kekri;
-    AES_KEY actx;
     unsigned char *wkey = NULL;
     int wkeylen;
     int r = 0;
+    const EVP_CIPHER *cipher = NULL;
+    int outlen = 0;
+    EVP_CIPHER_CTX *ctx = NULL;
 
     ec = cms->d.envelopedData->encryptedContentInfo;
 
     kekri = ri->d.kekri;
 
-    if (!kekri->key) {
+    if (kekri->key == NULL) {
         CMSerr(CMS_F_CMS_RECIPIENTINFO_KEKRI_ENCRYPT, CMS_R_NO_KEY);
         return 0;
     }
 
-    if (AES_set_encrypt_key(kekri->key, kekri->keylen << 3, &actx)) {
-        CMSerr(CMS_F_CMS_RECIPIENTINFO_KEKRI_ENCRYPT,
-               CMS_R_ERROR_SETTING_KEY);
+    cipher = cms_get_key_wrap_cipher(kekri->keylen);
+    if (cipher == NULL) {
+        CMSerr(CMS_F_CMS_RECIPIENTINFO_KEKRI_ENCRYPT, CMS_R_INVALID_KEY_LENGTH);
         goto err;
     }
 
+    /* 8 byte prefix for AES wrap ciphers */
     wkey = OPENSSL_malloc(ec->keylen + 8);
-
     if (wkey == NULL) {
         CMSerr(CMS_F_CMS_RECIPIENTINFO_KEKRI_ENCRYPT, ERR_R_MALLOC_FAILURE);
         goto err;
     }
 
-    wkeylen = AES_wrap_key(&actx, NULL, wkey, ec->key, ec->keylen);
+    ctx = EVP_CIPHER_CTX_new();
+    if (ctx == NULL) {
+        CMSerr(CMS_F_CMS_RECIPIENTINFO_KEKRI_ENCRYPT, ERR_R_MALLOC_FAILURE);
+        goto err;
+    }
 
-    if (wkeylen <= 0) {
+    EVP_CIPHER_CTX_set_flags(ctx, EVP_CIPHER_CTX_FLAG_WRAP_ALLOW);
+    if (!EVP_EncryptInit_ex(ctx, cipher, NULL, kekri->key, NULL)
+            || !EVP_EncryptUpdate(ctx, wkey, &wkeylen, ec->key, ec->keylen)
+            || !EVP_EncryptFinal_ex(ctx, wkey + wkeylen, &outlen)) {
+        CMSerr(CMS_F_CMS_RECIPIENTINFO_KEKRI_ENCRYPT, CMS_R_WRAP_ERROR);
+        goto err;
+    }
+    wkeylen += outlen;
+    if (!ossl_assert((size_t)wkeylen == ec->keylen + 8)) {
         CMSerr(CMS_F_CMS_RECIPIENTINFO_KEKRI_ENCRYPT, CMS_R_WRAP_ERROR);
         goto err;
     }
@@ -670,10 +702,9 @@ static int cms_RecipientInfo_kekri_encrypt(const CMS_ContentInfo *cms,
     r = 1;
 
  err:
-
     if (!r)
         OPENSSL_free(wkey);
-    OPENSSL_cleanse(&actx, sizeof(actx));
+    EVP_CIPHER_CTX_free(ctx);
 
     return r;
 
@@ -686,10 +717,12 @@ static int cms_RecipientInfo_kekri_decrypt(CMS_ContentInfo *cms,
 {
     CMS_EncryptedContentInfo *ec;
     CMS_KEKRecipientInfo *kekri;
-    AES_KEY actx;
     unsigned char *ukey = NULL;
     int ukeylen;
     int r = 0, wrap_nid;
+    const EVP_CIPHER *cipher = NULL;
+    int outlen = 0;
+    EVP_CIPHER_CTX *ctx = NULL;
 
     ec = cms->d.envelopedData->encryptedContentInfo;
 
@@ -715,27 +748,33 @@ static int cms_RecipientInfo_kekri_decrypt(CMS_ContentInfo *cms,
         goto err;
     }
 
-    if (AES_set_decrypt_key(kekri->key, kekri->keylen << 3, &actx)) {
-        CMSerr(CMS_F_CMS_RECIPIENTINFO_KEKRI_DECRYPT,
-               CMS_R_ERROR_SETTING_KEY);
+    cipher = cms_get_key_wrap_cipher(kekri->keylen);
+    if (cipher == NULL) {
+        CMSerr(CMS_F_CMS_RECIPIENTINFO_KEKRI_DECRYPT, CMS_R_INVALID_KEY_LENGTH);
         goto err;
     }
 
     ukey = OPENSSL_malloc(kekri->encryptedKey->length - 8);
-
     if (ukey == NULL) {
         CMSerr(CMS_F_CMS_RECIPIENTINFO_KEKRI_DECRYPT, ERR_R_MALLOC_FAILURE);
         goto err;
     }
 
-    ukeylen = AES_unwrap_key(&actx, NULL, ukey,
-                             kekri->encryptedKey->data,
-                             kekri->encryptedKey->length);
+    ctx = EVP_CIPHER_CTX_new();
+    if (ctx == NULL) {
+        CMSerr(CMS_F_CMS_RECIPIENTINFO_KEKRI_DECRYPT, ERR_R_MALLOC_FAILURE);
+        goto err;
+    }
 
-    if (ukeylen <= 0) {
+    if (!EVP_DecryptInit_ex(ctx, cipher, NULL, kekri->key, NULL)
+            || !EVP_DecryptUpdate(ctx, ukey, &ukeylen,
+                                  kekri->encryptedKey->data,
+                                  kekri->encryptedKey->length)
+            || !EVP_DecryptFinal_ex(ctx, ukey + ukeylen, &outlen)) {
         CMSerr(CMS_F_CMS_RECIPIENTINFO_KEKRI_DECRYPT, CMS_R_UNWRAP_ERROR);
         goto err;
     }
+    ukeylen += outlen;
 
     ec->key = ukey;
     ec->keylen = ukeylen;
@@ -743,10 +782,9 @@ static int cms_RecipientInfo_kekri_decrypt(CMS_ContentInfo *cms,
     r = 1;
 
  err:
-
     if (!r)
         OPENSSL_free(ukey);
-    OPENSSL_cleanse(&actx, sizeof(actx));
+    EVP_CIPHER_CTX_free(ctx);
 
     return r;
 

@@ -8,8 +8,14 @@
  * https://www.openssl.org/source/license.html
  */
 
-#ifndef HEADER_UIERR_H
-# define HEADER_UIERR_H
+#ifndef OPENSSL_UIERR_H
+# define OPENSSL_UIERR_H
+# pragma once
+
+# include <openssl/macros.h>
+# ifndef OPENSSL_NO_DEPRECATED_3_0
+#  define HEADER_UIERR_H
+# endif
 
 # include <openssl/opensslconf.h>
 # include <openssl/symhacks.h>
@@ -23,7 +29,7 @@ int ERR_load_UI_strings(void);
 /*
  * UI function codes.
  */
-# if !OPENSSL_API_3
+# ifndef OPENSSL_NO_DEPRECATED_3_0
 #  define UI_F_CLOSE_CONSOLE                               0
 #  define UI_F_ECHO_CONSOLE                                0
 #  define UI_F_GENERAL_ALLOCATE_BOOLEAN                    0

@@ -7,8 +7,14 @@
  * https://www.openssl.org/source/license.html
  */
 
+/*
+ * CAST low level APIs are deprecated for public use, but still ok for
+ * internal use.
+ */
+#include "internal/deprecated.h"
+
 #include <openssl/cast.h>
-#include "cast_lcl.h"
+#include "cast_local.h"
 #include <openssl/opensslv.h>
 
 void CAST_ecb_encrypt(const unsigned char *in, unsigned char *out,

@@ -14,7 +14,7 @@
 #include <openssl/objects.h>
 #include <openssl/evp.h>
 #include <openssl/x509.h>
-#include "internal/x509_int.h"
+#include "crypto/x509.h"
 
 int X509_CRL_set_version(X509_CRL *x, long version)
 {
@@ -91,7 +91,7 @@ const ASN1_TIME *X509_CRL_get0_nextUpdate(const X509_CRL *crl)
     return crl->crl.nextUpdate;
 }
 
-#if !OPENSSL_API_1_1_0
+#ifndef OPENSSL_NO_DEPRECATED_1_1_0
 ASN1_TIME *X509_CRL_get_lastUpdate(X509_CRL *crl)
 {
     return crl->crl.lastUpdate;

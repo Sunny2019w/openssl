@@ -7,8 +7,14 @@
  * https://www.openssl.org/source/license.html
  */
 
+/*
+ * Camellia low level APIs are deprecated for public use, but still ok for
+ * internal use.
+ */
+#include "internal/deprecated.h"
+
 #include <openssl/camellia.h>
-#include "cmll_locl.h"
+#include "cmll_local.h"
 
 void Camellia_ecb_encrypt(const unsigned char *in, unsigned char *out,
                           const CAMELLIA_KEY *key, const int enc)

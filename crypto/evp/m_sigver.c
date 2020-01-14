@@ -12,8 +12,11 @@
 #include <openssl/evp.h>
 #include <openssl/objects.h>
 #include <openssl/x509.h>
-#include "internal/evp_int.h"
-#include "evp_locl.h"
+#include "crypto/evp.h"
+#include "internal/provider.h"
+#include "evp_local.h"
+
+#ifndef FIPS_MODE
 
 static int update(EVP_MD_CTX *ctx, const void *data, size_t datalen)
 {
@@ -22,13 +25,150 @@ static int update(EVP_MD_CTX *ctx, const void *data, size_t datalen)
 }
 
 static int do_sigver_init(EVP_MD_CTX *ctx, EVP_PKEY_CTX **pctx,
-                          const EVP_MD *type, ENGINE *e, EVP_PKEY *pkey,
+                          const EVP_MD *type, const char *mdname,
+                          const char *props, ENGINE *e, EVP_PKEY *pkey,
                           int ver)
 {
+    EVP_PKEY_CTX *locpctx = NULL;
+    EVP_SIGNATURE *signature = NULL;
+    void *provkey = NULL;
+    int ret;
+
+    if (ctx->provctx != NULL) {
+        if (!ossl_assert(ctx->digest != NULL)) {
+            ERR_raise(ERR_LIB_EVP, EVP_R_INITIALIZATION_ERROR);
+            return 0;
+        }
+        if (ctx->digest->freectx != NULL)
+            ctx->digest->freectx(ctx->provctx);
+        ctx->provctx = NULL;
+    }
+
     if (ctx->pctx == NULL)
         ctx->pctx = EVP_PKEY_CTX_new(pkey, e);
     if (ctx->pctx == NULL)
         return 0;
+
+    locpctx = ctx->pctx;
+    evp_pkey_ctx_free_old_ops(locpctx);
+
+    if (locpctx->keytype == NULL)
+        goto legacy;
+
+    if (mdname == NULL) {
+        if (type != NULL) {
+            mdname = EVP_MD_name(type);
+        } else if (pkey != NULL) {
+            /*
+             * TODO(v3.0) work out a better way for EVP_PKEYs with no legacy
+             * component.
+             */
+            if (pkey->pkey.ptr != NULL) {
+                int def_nid;
+                if (EVP_PKEY_get_default_digest_nid(pkey, &def_nid) > 0)
+                    mdname = OBJ_nid2sn(def_nid);
+            }
+        }
+    }
+
+    if (locpctx->keymgmt == NULL)
+        locpctx->keymgmt = EVP_KEYMGMT_fetch(locpctx->libctx, locpctx->keytype,
+                                             locpctx->propquery);
+    if (locpctx->keymgmt != NULL) {
+        const char *supported_sig = NULL;
+
+        if (locpctx->keymgmt->query_operation_name != NULL)
+            supported_sig =
+                locpctx->keymgmt->query_operation_name(OSSL_OP_SIGNATURE);
+
+        /*
+         * If we didn't get a supported sig, assume there is one with the
+         * same name as the key type.
+         */
+        if (supported_sig == NULL)
+            supported_sig = locpctx->keytype;
+
+        /*
+         * Because we cleared out old ops, we shouldn't need to worry about
+         * checking if signature is already there.
+         */
+        signature = EVP_SIGNATURE_fetch(locpctx->libctx, supported_sig,
+                                        locpctx->propquery);
+    }
+
+    if (locpctx->keymgmt == NULL
+        || signature == NULL
+        || (EVP_KEYMGMT_provider(locpctx->keymgmt)
+            != EVP_SIGNATURE_provider(signature))) {
+        /*
+         * We don't have the full support we need with provided methods,
+         * let's go see if legacy does.  Also, we don't need to free
+         * ctx->keymgmt here, as it's not necessarily tied to this
+         * operation.  It will be freed by EVP_PKEY_CTX_free().
+         */
+        EVP_SIGNATURE_free(signature);
+        goto legacy;
+    }
+
+    /* No more legacy from here down to legacy: */
+
+    locpctx->op.sig.signature = signature;
+
+    provkey =
+        evp_keymgmt_export_to_provider(locpctx->pkey, locpctx->keymgmt, 0);
+    /* If export failed, legacy may be able to pick it up */
+    if (provkey == NULL)
+        goto legacy;
+
+    locpctx->operation = ver ? EVP_PKEY_OP_VERIFYCTX
+                             : EVP_PKEY_OP_SIGNCTX;
+
+    locpctx->op.sig.sigprovctx
+        = signature->newctx(ossl_provider_ctx(signature->prov));
+    if (locpctx->op.sig.sigprovctx == NULL) {
+        ERR_raise(ERR_LIB_EVP,  EVP_R_INITIALIZATION_ERROR);
+        goto err;
+    }
+    if (type != NULL) {
+        ctx->reqdigest = type;
+    } else {
+        /*
+         * This might be requested by a later call to EVP_MD_CTX_md(). In that
+         * case the "explicit fetch" rules apply for that function (as per
+         * man pages), i.e. the ref count is not updated so the EVP_MD should
+         * not be used beyound the lifetime of the EVP_MD_CTX.
+         */
+        ctx->reqdigest = ctx->fetched_digest =
+            EVP_MD_fetch(locpctx->libctx, mdname, props);
+    }
+
+    if (ver) {
+        if (signature->digest_verify_init == NULL) {
+            ERR_raise(ERR_LIB_EVP, EVP_R_INITIALIZATION_ERROR);
+            goto err;
+        }
+        ret = signature->digest_verify_init(locpctx->op.sig.sigprovctx,
+                                            mdname, props, provkey);
+    } else {
+        if (signature->digest_sign_init == NULL) {
+            ERR_raise(ERR_LIB_EVP, EVP_R_INITIALIZATION_ERROR);
+            goto err;
+        }
+        ret = signature->digest_sign_init(locpctx->op.sig.sigprovctx,
+                                          mdname, props, provkey);
+    }
+
+    return ret ? 1 : 0;
+ err:
+    evp_pkey_ctx_free_old_ops(locpctx);
+    locpctx->operation = EVP_PKEY_OP_UNDEFINED;
+    return 0;
+
+ legacy:
+    if (ctx->pctx->pmeth == NULL) {
+        EVPerr(0, EVP_R_OPERATION_NOT_SUPPORTED_FOR_THIS_KEYTYPE);
+        return -2;
+    }
 
     if (!(ctx->pctx->pmeth->flags & EVP_PKEY_FLAG_SIGCTX_CUSTOM)) {
 
@@ -85,23 +225,83 @@ static int do_sigver_init(EVP_MD_CTX *ctx, EVP_PKEY_CTX **pctx,
     return 1;
 }
 
+int EVP_DigestSignInit_ex(EVP_MD_CTX *ctx, EVP_PKEY_CTX **pctx,
+                          const char *mdname, const char *props, EVP_PKEY *pkey)
+{
+    return do_sigver_init(ctx, pctx, NULL, mdname, props, NULL, pkey, 0);
+}
+
 int EVP_DigestSignInit(EVP_MD_CTX *ctx, EVP_PKEY_CTX **pctx,
                        const EVP_MD *type, ENGINE *e, EVP_PKEY *pkey)
 {
-    return do_sigver_init(ctx, pctx, type, e, pkey, 0);
+    return do_sigver_init(ctx, pctx, type, NULL, NULL, e, pkey, 0);
+}
+
+int EVP_DigestVerifyInit_ex(EVP_MD_CTX *ctx, EVP_PKEY_CTX **pctx,
+                            const char *mdname, const char *props,
+                            EVP_PKEY *pkey)
+{
+    return do_sigver_init(ctx, pctx, NULL, mdname, props, NULL, pkey, 1);
 }
 
 int EVP_DigestVerifyInit(EVP_MD_CTX *ctx, EVP_PKEY_CTX **pctx,
                          const EVP_MD *type, ENGINE *e, EVP_PKEY *pkey)
 {
-    return do_sigver_init(ctx, pctx, type, e, pkey, 1);
+    return do_sigver_init(ctx, pctx, type, NULL, NULL, e, pkey, 1);
+}
+#endif /* FIPS_MDOE */
+
+int EVP_DigestSignUpdate(EVP_MD_CTX *ctx, const void *data, size_t dsize)
+{
+    EVP_PKEY_CTX *pctx = ctx->pctx;
+
+    if (pctx == NULL
+            || pctx->operation != EVP_PKEY_OP_SIGNCTX
+            || pctx->op.sig.sigprovctx == NULL
+            || pctx->op.sig.signature == NULL)
+        goto legacy;
+
+    return pctx->op.sig.signature->digest_sign_update(pctx->op.sig.sigprovctx,
+                                                      data, dsize);
+
+ legacy:
+    return EVP_DigestUpdate(ctx, data, dsize);
 }
 
+int EVP_DigestVerifyUpdate(EVP_MD_CTX *ctx, const void *data, size_t dsize)
+{
+    EVP_PKEY_CTX *pctx = ctx->pctx;
+
+    if (pctx == NULL
+            || pctx->operation != EVP_PKEY_OP_VERIFYCTX
+            || pctx->op.sig.sigprovctx == NULL
+            || pctx->op.sig.signature == NULL)
+        goto legacy;
+
+    return pctx->op.sig.signature->digest_verify_update(pctx->op.sig.sigprovctx,
+                                                        data, dsize);
+
+ legacy:
+    return EVP_DigestUpdate(ctx, data, dsize);
+}
+
+#ifndef FIPS_MODE
 int EVP_DigestSignFinal(EVP_MD_CTX *ctx, unsigned char *sigret,
                         size_t *siglen)
 {
     int sctx = 0, r = 0;
     EVP_PKEY_CTX *pctx = ctx->pctx;
+
+    if (pctx == NULL
+            || pctx->operation != EVP_PKEY_OP_SIGNCTX
+            || pctx->op.sig.sigprovctx == NULL
+            || pctx->op.sig.signature == NULL)
+        goto legacy;
+
+    return pctx->op.sig.signature->digest_sign_final(pctx->op.sig.sigprovctx,
+                                                     sigret, siglen, SIZE_MAX);
+
+ legacy:
     if (pctx->pmeth->flags & EVP_PKEY_FLAG_SIGCTX_CUSTOM) {
         if (!sigret)
             return pctx->pmeth->signctx(pctx, sigret, siglen, ctx);
@@ -177,7 +377,18 @@ int EVP_DigestVerifyFinal(EVP_MD_CTX *ctx, const unsigned char *sig,
     int r = 0;
     unsigned int mdlen = 0;
     int vctx = 0;
+    EVP_PKEY_CTX *pctx = ctx->pctx;
 
+    if (pctx == NULL
+            || pctx->operation != EVP_PKEY_OP_VERIFYCTX
+            || pctx->op.sig.sigprovctx == NULL
+            || pctx->op.sig.signature == NULL)
+        goto legacy;
+
+    return pctx->op.sig.signature->digest_verify_final(pctx->op.sig.sigprovctx,
+                                                       sig, siglen);
+
+ legacy:
     if (ctx->pctx->pmeth->verifyctx)
         vctx = 1;
     else
@@ -216,3 +427,4 @@ int EVP_DigestVerify(EVP_MD_CTX *ctx, const unsigned char *sigret,
         return -1;
     return EVP_DigestVerifyFinal(ctx, sigret, siglen);
 }
+#endif /* FIPS_MODE */

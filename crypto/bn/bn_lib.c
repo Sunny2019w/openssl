@@ -10,12 +10,12 @@
 #include <assert.h>
 #include <limits.h>
 #include "internal/cryptlib.h"
-#include "bn_lcl.h"
+#include "bn_local.h"
 #include <openssl/opensslconf.h>
-#include "internal/constant_time_locl.h"
+#include "internal/constant_time.h"
 
 /* This stuff appears to be completely unused, so is deprecated */
-#if !OPENSSL_API_0_9_8
+#ifndef OPENSSL_NO_DEPRECATED_0_9_8
 /*-
  * For a 32 bit machine
  * 2 -   4 ==  128

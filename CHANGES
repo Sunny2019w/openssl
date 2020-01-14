@@ -9,6 +9,196 @@
 
  Changes between 1.1.1 and 3.0.0 [xx XXX xxxx]
 
+  *) All of the low level Blowfish functions have been deprecated including:
+     BF_set_key, BF_encrypt, BF_decrypt, BF_ecb_encrypt, BF_cbc_encrypt,
+     BF_cfb64_encrypt, BF_ofb64_encrypt, and BF_options.
+     Use of these low level functions has been informally discouraged for a long
+     time. Instead applications should use the high level EVP APIs, e.g.
+     EVP_EncryptInit_ex, EVP_EncryptUpdate, EVP_EncryptFinal_ex, and the
+     equivalently named decrypt functions.
+     [Matt Caswell]
+
+  *) All of the low level CAST functions have been deprecated including:
+     CAST_set_key, CAST_ecb_encrypt, CAST_encrypt, CAST_decrypt,
+     CAST_cbc_encrypt, CAST_cfb64_encrypt and CAST_ofb64_encrypt
+     Use of these low level functions has been informally discouraged for a long
+     time. Instead applications should use the high level EVP APIs, e.g.
+     EVP_EncryptInit_ex, EVP_EncryptUpdate, EVP_EncryptFinal_ex, and the
+     equivalently named decrypt functions.
+     [Matt Caswell]
+
+  *) All of the low level Camelllia functions have been deprecated including:
+     Camellia_set_key, Camellia_encrypt, Camellia_decrypt, Camellia_ecb_encrypt,
+     Camellia_cbc_encrypt, Camellia_cfb128_encrypt, Camellia_cfb1_encrypt,
+     Camellia_cfb8_encrypt, Camellia_ofb128_encrypt and Camellia_ctr128_encrypt.
+     Use of these low level functions has been informally discouraged for a long
+     time. Instead applications should use the high level EVP APIs, e.g.
+     EVP_EncryptInit_ex, EVP_EncryptUpdate, EVP_EncryptFinal_ex, and the
+     equivalently named decrypt functions.
+     [Matt Caswell]
+
+  *) Removed include/openssl/opensslconf.h.in and replaced it with
+     include/openssl/configuration.h.in, which differs in not including
+     <openssl/macros.h>.  A short header include/openssl/opensslconf.h
+     was added to include both.
+
+     This allows internal hacks where one might need to modify the set
+     of configured macros, for example this if deprecated symbols are
+     still supposed to be available internally:
+
+         #include <openssl/configuration.h>
+
+         #undef OPENSSL_NO_DEPRECATED
+         #define OPENSSL_SUPPRESS_DEPRECATED
+
+         #include <openssl/macros.h>
+
+     This should not be used by applications that use the exported
+     symbols, as that will lead to linking errors.
+     [Richard Levitte]
+
+  *) Fixed an an overflow bug in the x64_64 Montgomery squaring procedure
+     used in exponentiation with 512-bit moduli. No EC algorithms are
+     affected. Analysis suggests that attacks against 2-prime RSA1024,
+     3-prime RSA1536, and DSA1024 as a result of this defect would be very
+     difficult to perform and are not believed likely. Attacks against DH512
+     are considered just feasible. However, for an attack the target would
+     have to re-use the DH512 private key, which is not recommended anyway.
+     Also applications directly using the low level API BN_mod_exp may be
+     affected if they use BN_FLG_CONSTTIME.
+     (CVE-2019-1551)
+     [Andy Polyakov]
+
+  *) Most memory-debug features have been deprecated, and the functionality
+     replaced with no-ops.
+     [Rich Salz]
+
+  *) Introduced a new method type and API, OSSL_SERIALIZER, to
+     represent generic serializers.  An implementation is expected to
+     be able to serialize an object associated with a given name (such
+     as an algorithm name for an asymmetric key) into forms given by
+     implementation properties.
+
+     Serializers are primarily used from inside libcrypto, through
+     calls to functions like EVP_PKEY_print_private(),
+     PEM_write_bio_PrivateKey() and similar.
+
+     Serializers are specified in such a way that they can be made to
+     directly handle the provider side portion of an object, if this
+     provider side part comes from the same provider as the serializer
+     itself, but can also be made to handle objects in parametrized
+     form (as an OSSL_PARAM array of data).  This allows a provider to
+     offer generic serializers as a service for any other provider.
+     [Richard Levitte]
+
+  *) Added a .pragma directive to the syntax of configuration files, to
+     allow varying behavior in a supported and predictable manner.
+     Currently added pragma:
+
+     .pragma dollarid:on
+
+     This allows dollar signs to be a keyword character unless it's
+     followed by a opening brace or parenthesis.  This is useful for
+     platforms where dollar signs are commonly used in names, such as
+     volume names and system directory names on VMS.
+     [Richard Levitte]
+
+  *) Added functionality to create an EVP_PKEY from user data.  This
+     is effectively the same as creating a RSA, DH or DSA object and
+     then assigning them to an EVP_PKEY, but directly using algorithm
+     agnostic EVP functions.  A benefit is that this should be future
+     proof for public key algorithms to come.
+     [Richard Levitte]
+
+  *) Change the interpretation of the '--api' configuration option to
+     mean that this is a desired API compatibility level with no
+     further meaning.  The previous interpretation, that this would
+     also mean to remove all deprecated symbols up to and including
+     the given version, no requires that 'no-deprecated' is also used
+     in the configuration.
+
+     When building applications, the desired API compatibility level
+     can be set with the OPENSSL_API_COMPAT macro like before.  For
+     API compatibility version below 3.0, the old style numerical
+     value is valid as before, such as -DOPENSSL_API_COMPAT=0x10100000L.
+     For version 3.0 and on, the value is expected to be the decimal
+     value calculated from the major and minor version like this:
+
+         MAJOR * 10000 + MINOR * 100
+
+     Examples:
+
+         -DOPENSSL_API_COMPAT=30000             For 3.0
+         -DOPENSSL_API_COMPAT=30200             For 3.2
+
+     To hide declarations that are deprecated up to and including the
+     given API compatibility level, -DOPENSSL_NO_DEPRECATED must be
+     given when building the application as well.
+     [Richard Levitte]
+
+  *) Added the X509_LOOKUP_METHOD called X509_LOOKUP_store, to allow
+     access to certificate and CRL stores via URIs and OSSL_STORE
+     loaders.
+
+     This adds the following functions:
+
+     X509_LOOKUP_store()
+     X509_STORE_load_file()
+     X509_STORE_load_path()
+     X509_STORE_load_store()
+     SSL_add_store_cert_subjects_to_stack()
+     SSL_CTX_set_default_verify_store()
+     SSL_CTX_load_verify_file()
+     SSL_CTX_load_verify_dir()
+     SSL_CTX_load_verify_store()
+
+     Also, the following functions are now deprecated:
+
+     - X509_STORE_load_locations() (use X509_STORE_load_file(),
+       X509_STORE_load_path() or X509_STORE_load_store() instead)
+     - SSL_CTX_load_verify_locations() (use SSL_CTX_load_verify_file(),
+       SSL_CTX_load_verify_dir() or SSL_CTX_load_verify_store() instead)
+     [Richard Levitte]
+
+  *) Added a new method to gather entropy on VMS, based on SYS$GET_ENTROPY.
+     The presence of this system service is determined at run-time.
+     [Richard Levitte]
+
+  *) Added functionality to create an EVP_PKEY context based on data
+     for methods from providers.  This takes an algorithm name and a
+     property query string and simply stores them, with the intent
+     that any operation that uses this context will use those strings
+     to fetch the needed methods implicitly, thereby making the port
+     of application written for pre-3.0 OpenSSL easier.
+     [Richard Levitte]
+
+  *) The undocumented function NCONF_WIN32() has been deprecated; for
+     conversion details see the HISTORY section of doc/man5/config.pod
+     [Rich Salz]
+
+  *) Introduced the new functions EVP_DigestSignInit_ex() and
+     EVP_DigestVerifyInit_ex(). The macros EVP_DigestSignUpdate() and
+     EVP_DigestVerifyUpdate() have been converted to functions. See the man
+     pages for further details.
+     [Matt Caswell]
+
+  *) Most common options (such as -rand/-writerand, TLS version control, etc)
+     were refactored and point to newly-enhanced descriptions in openssl.pod
+     [Rich Salz]
+
+  *) Over two thousand fixes were made to the documentation, including:
+     adding missing command flags, better style conformance, documentation
+     of internals, etc.
+     [Rich Salz, Richard Levitte]
+
+  *) s390x assembly pack: add hardware-support for P-256, P-384, P-521,
+     X25519, X448, Ed25519 and Ed448.
+     [Patrick Steuer]
+
+  *) Print all values for a PKCS#12 attribute with 'openssl pkcs12', not just
+     the first value.
+     [Jon Spillett]
+
   *) Deprecated the public definition of ERR_STATE as well as the function
      ERR_get_state().  This is done in preparation of making ERR_STATE an
      opaque type.
@@ -201,7 +391,17 @@
      for scripting purposes.
      [Richard Levitte]
 
-  *) The functions AES_ige_encrypt() and AES_bi_ige_encrypt() have been
+  *) All of the low level AES functions have been deprecated including:
+     AES_options, AES_set_encrypt_key, AES_set_decrypt_key, AES_encrypt,
+     AES_decrypt, AES_ecb_encrypt, AES_cbc_encrypt, AES_cfb128_encrypt,
+     AES_cfb1_encrypt, AES_cfb8_encrypt, AES_ofb128_encrypt, AES_wrap_key and
+     AES_unwrap_key
+     Use of these low level functions has been informally discouraged for a long
+     time. Instead applications should use the high level EVP APIs, e.g.
+     EVP_EncryptInit_ex, EVP_EncryptUpdate, EVP_EncryptFinal_ex, and the
+     equivalently named decrypt functions.
+
+     The functions AES_ige_encrypt() and AES_bi_ige_encrypt() have also been
      deprecated. These undocumented functions were never integrated into the EVP
      layer and implement the AES Infinite Garble Extension (IGE) mode and AES
      Bi-directional IGE mode. These modes were never formally standardised and
@@ -299,15 +499,6 @@
      [Richard Levitte]
 
   *) Change the license to the Apache License v2.0.
-     [Richard Levitte]
-
-  *) Change the possible version information given with OPENSSL_API_COMPAT.
-     It may be a pre-3.0.0 style numerical version number as it was defined
-     in 1.1.0, and it may also simply take the major version number.
-
-     Because of the version numbering of pre-3.0.0 releases, the values 0,
-     1 and 2 are equivalent to 0x00908000L (0.9.8), 0x10000000L (1.0.0) and
-     0x10100000L (1.1.0), respectively.
      [Richard Levitte]
 
   *) Switch to a new version scheme using three numbers MAJOR.MINOR.PATCH.

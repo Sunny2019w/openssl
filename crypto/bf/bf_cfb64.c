@@ -7,8 +7,14 @@
  * https://www.openssl.org/source/license.html
  */
 
+/*
+ * BF low level APIs are deprecated for public use, but still ok for internal
+ * use.
+ */
+#include "internal/deprecated.h"
+
 #include <openssl/blowfish.h>
-#include "bf_locl.h"
+#include "bf_local.h"
 
 /*
  * The input and output encrypted as though 64bit cfb mode is being used.

@@ -13,7 +13,7 @@
 #include <openssl/asn1.h>
 #include <openssl/evp.h>
 #include <openssl/x509.h>
-#include "internal/x509_int.h"
+#include "crypto/x509.h"
 #include <openssl/ocsp.h>
 #include <openssl/rsa.h>
 #include <openssl/dsa.h>
@@ -21,8 +21,8 @@
 
 #ifndef OPENSSL_NO_SM2
 
-# include "internal/asn1_int.h"
-# include "internal/evp_int.h"
+# include "crypto/asn1.h"
+# include "crypto/evp.h"
 
 static int common_verify_sm2(void *data, EVP_PKEY *pkey,
                              int mdnid, int pknid, int req)
@@ -590,6 +590,30 @@ int i2d_PKCS8_bio(BIO *bp, const X509_SIG *p8)
 }
 
 #ifndef OPENSSL_NO_STDIO
+X509_PUBKEY *d2i_X509_PUBKEY_fp(FILE *fp, X509_PUBKEY **xpk)
+{
+    return ASN1_d2i_fp_of(X509_PUBKEY, X509_PUBKEY_new, d2i_X509_PUBKEY,
+                          fp, xpk);
+}
+
+int i2d_X509_PUBKEY_fp(FILE *fp, const X509_PUBKEY *xpk)
+{
+    return ASN1_i2d_fp_of(X509_PUBKEY, i2d_X509_PUBKEY, fp, xpk);
+}
+#endif
+
+X509_PUBKEY *d2i_X509_PUBKEY_bio(BIO *bp, X509_PUBKEY **xpk)
+{
+    return ASN1_d2i_bio_of(X509_PUBKEY, X509_PUBKEY_new, d2i_X509_PUBKEY,
+                           bp, xpk);
+}
+
+int i2d_X509_PUBKEY_bio(BIO *bp, const X509_PUBKEY *xpk)
+{
+    return ASN1_i2d_bio_of(X509_PUBKEY, i2d_X509_PUBKEY, bp, xpk);
+}
+
+#ifndef OPENSSL_NO_STDIO
 PKCS8_PRIV_KEY_INFO *d2i_PKCS8_PRIV_KEY_INFO_fp(FILE *fp,
                                                 PKCS8_PRIV_KEY_INFO **p8inf)
 {
@@ -607,8 +631,9 @@ int i2d_PKCS8PrivateKeyInfo_fp(FILE *fp, const EVP_PKEY *key)
 {
     PKCS8_PRIV_KEY_INFO *p8inf;
     int ret;
+
     p8inf = EVP_PKEY2PKCS8(key);
-    if (!p8inf)
+    if (p8inf == NULL)
         return 0;
     ret = i2d_PKCS8_PRIV_KEY_INFO_fp(fp, p8inf);
     PKCS8_PRIV_KEY_INFO_free(p8inf);
@@ -654,8 +679,9 @@ int i2d_PKCS8PrivateKeyInfo_bio(BIO *bp, const EVP_PKEY *key)
 {
     PKCS8_PRIV_KEY_INFO *p8inf;
     int ret;
+
     p8inf = EVP_PKEY2PKCS8(key);
-    if (!p8inf)
+    if (p8inf == NULL)
         return 0;
     ret = i2d_PKCS8_PRIV_KEY_INFO_bio(bp, p8inf);
     PKCS8_PRIV_KEY_INFO_free(p8inf);

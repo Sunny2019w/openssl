@@ -8,8 +8,14 @@
  * https://www.openssl.org/source/license.html
  */
 
-#ifndef HEADER_CTERR_H
-# define HEADER_CTERR_H
+#ifndef OPENSSL_CTERR_H
+# define OPENSSL_CTERR_H
+# pragma once
+
+# include <openssl/macros.h>
+# ifndef OPENSSL_NO_DEPRECATED_3_0
+#  define HEADER_CTERR_H
+# endif
 
 # include <openssl/opensslconf.h>
 # include <openssl/symhacks.h>
@@ -27,7 +33,7 @@ int ERR_load_CT_strings(void);
 /*
  * CT function codes.
  */
-# if !OPENSSL_API_3
+# ifndef OPENSSL_NO_DEPRECATED_3_0
 #   define CT_F_CTLOG_NEW                                   0
 #   define CT_F_CTLOG_NEW_FROM_BASE64                       0
 #   define CT_F_CTLOG_NEW_FROM_CONF                         0

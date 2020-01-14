@@ -14,9 +14,9 @@
 #include <openssl/err.h>
 #include "internal/propertyerr.h"
 #include "internal/property.h"
-#include "internal/ctype.h"
+#include "crypto/ctype.h"
 #include "internal/nelem.h"
-#include "property_lcl.h"
+#include "property_local.h"
 #include "e_os.h"
 
 typedef enum {
@@ -203,7 +203,7 @@ static int parse_string(OPENSSL_CTX *ctx, const char *t[], char delim,
         s++;
     }
     if (*s == '\0') {
-        ERR_raise_data(ERR_LIB_PROP, PROP_R_NO_MATCHING_STRING_DELIMETER,
+        ERR_raise_data(ERR_LIB_PROP, PROP_R_NO_MATCHING_STRING_DELIMITER,
                        "HERE-->%c%s", delim, *t);
         return 0;
     }
@@ -492,7 +492,7 @@ int ossl_property_match_count(const OSSL_PROPERTY_LIST *query,
 
         /*
          * Handle the cases of a missing value and a query with no corresponding
-         * definition.  The former fails for any comparision except inequality,
+         * definition.  The former fails for any comparison except inequality,
          * the latter is treated as a comparison against the Boolean false.
          */
         if (q[i].type == PROPERTY_TYPE_VALUE_UNDEFINED) {
@@ -568,6 +568,8 @@ int ossl_property_parse_init(OPENSSL_CTX *ctx)
         "version",      /* Version number of this provider */
         "fips",         /* FIPS supporting provider */
         "engine",       /* An old style engine masquerading as a provider */
+        "format",       /* output format for serializers */
+        "type",         /* output type for serializers */
     };
     size_t i;
 

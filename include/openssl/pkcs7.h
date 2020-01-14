@@ -7,15 +7,21 @@
  * https://www.openssl.org/source/license.html
  */
 
-#ifndef HEADER_PKCS7_H
-# define HEADER_PKCS7_H
+#ifndef OPENSSL_PKCS7_H
+# define OPENSSL_PKCS7_H
+# pragma once
+
+# include <openssl/macros.h>
+# ifndef OPENSSL_NO_DEPRECATED_3_0
+#  define HEADER_PKCS7_H
+# endif
 
 # include <openssl/asn1.h>
 # include <openssl/bio.h>
 # include <openssl/e_os2.h>
 
 # include <openssl/symhacks.h>
-# include <openssl/ossl_typ.h>
+# include <openssl/types.h>
 # include <openssl/pkcs7err.h>
 
 #ifdef  __cplusplus

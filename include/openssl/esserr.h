@@ -8,8 +8,8 @@
  * https://www.openssl.org/source/license.html
  */
 
-#ifndef HEADER_ESSERR_H
-# define HEADER_ESSERR_H
+#ifndef OPENSSL_ESSERR_H
+# define OPENSSL_ESSERR_H
 
 # include <openssl/opensslconf.h>
 # include <openssl/symhacks.h>
@@ -23,7 +23,7 @@ int ERR_load_ESS_strings(void);
 /*
  * ESS function codes.
  */
-# if !OPENSSL_API_3
+# ifndef OPENSSL_NO_DEPRECATED_3_0
 #  define ESS_F_ESS_CERT_ID_NEW_INIT                       0
 #  define ESS_F_ESS_CERT_ID_V2_NEW_INIT                    0
 #  define ESS_F_ESS_SIGNING_CERT_ADD                       0

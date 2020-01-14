@@ -7,8 +7,14 @@
  * https://www.openssl.org/source/license.html
  */
 
-#ifndef HEADER_CMAC_H
-# define HEADER_CMAC_H
+#ifndef OPENSSL_CMAC_H
+# define OPENSSL_CMAC_H
+# pragma once
+
+# include <openssl/macros.h>
+# ifndef OPENSSL_NO_DEPRECATED_3_0
+#  define HEADER_CMAC_H
+# endif
 
 # ifndef OPENSSL_NO_CMAC
 

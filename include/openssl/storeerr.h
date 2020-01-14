@@ -8,8 +8,14 @@
  * https://www.openssl.org/source/license.html
  */
 
-#ifndef HEADER_OSSL_STOREERR_H
-# define HEADER_OSSL_STOREERR_H
+#ifndef OPENSSL_STOREERR_H
+# define OPENSSL_STOREERR_H
+# pragma once
+
+# include <openssl/macros.h>
+# ifndef OPENSSL_NO_DEPRECATED_3_0
+#  define HEADER_OSSL_STOREERR_H
+# endif
 
 # include <openssl/opensslconf.h>
 # include <openssl/symhacks.h>
@@ -23,7 +29,7 @@ int ERR_load_OSSL_STORE_strings(void);
 /*
  * OSSL_STORE function codes.
  */
-# if !OPENSSL_API_3
+# ifndef OPENSSL_NO_DEPRECATED_3_0
 #  define OSSL_STORE_F_FILE_CTRL                           0
 #  define OSSL_STORE_F_FILE_FIND                           0
 #  define OSSL_STORE_F_FILE_GET_PASS                       0

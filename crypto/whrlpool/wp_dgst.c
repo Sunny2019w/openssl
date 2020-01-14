@@ -52,8 +52,14 @@
  * input. This is done for performance.
  */
 
+/*
+ * Whirlpool low level APIs are deprecated for public use, but still ok for
+ * internal use.
+ */
+#include "internal/deprecated.h"
+
 #include <openssl/crypto.h>
-#include "wp_locl.h"
+#include "wp_local.h"
 #include <string.h>
 
 int WHIRLPOOL_Init(WHIRLPOOL_CTX *c)

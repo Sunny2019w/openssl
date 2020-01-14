@@ -7,11 +7,17 @@
  * https://www.openssl.org/source/license.html
  */
 
-#ifndef HEADER_RAND_H
-# define HEADER_RAND_H
+#ifndef OPENSSL_RAND_H
+# define OPENSSL_RAND_H
+# pragma once
+
+# include <openssl/macros.h>
+# ifndef OPENSSL_NO_DEPRECATED_3_0
+#  define HEADER_RAND_H
+# endif
 
 # include <stdlib.h>
-# include <openssl/ossl_typ.h>
+# include <openssl/types.h>
 # include <openssl/e_os2.h>
 # include <openssl/randerr.h>
 
@@ -36,7 +42,7 @@ int RAND_set_rand_engine(ENGINE *engine);
 
 RAND_METHOD *RAND_OpenSSL(void);
 
-# if !OPENSSL_API_1_1_0
+# ifndef OPENSSL_NO_DEPRECATED_1_1_0
 #   define RAND_cleanup() while(0) continue
 # endif
 int RAND_bytes(unsigned char *buf, int num);

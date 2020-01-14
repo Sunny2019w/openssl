@@ -8,8 +8,14 @@
  * https://www.openssl.org/source/license.html
  */
 
-#ifndef HEADER_PKCS12ERR_H
-# define HEADER_PKCS12ERR_H
+#ifndef OPENSSL_PKCS12ERR_H
+# define OPENSSL_PKCS12ERR_H
+# pragma once
+
+# include <openssl/macros.h>
+# ifndef OPENSSL_NO_DEPRECATED_3_0
+#  define HEADER_PKCS12ERR_H
+# endif
 
 # include <openssl/opensslconf.h>
 # include <openssl/symhacks.h>
@@ -23,7 +29,7 @@ int ERR_load_PKCS12_strings(void);
 /*
  * PKCS12 function codes.
  */
-# if !OPENSSL_API_3
+# ifndef OPENSSL_NO_DEPRECATED_3_0
 #  define PKCS12_F_OPENSSL_ASC2UNI                         0
 #  define PKCS12_F_OPENSSL_UNI2ASC                         0
 #  define PKCS12_F_OPENSSL_UNI2UTF8                        0

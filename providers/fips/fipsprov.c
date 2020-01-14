@@ -25,11 +25,16 @@
 
 #include "internal/cryptlib.h"
 #include "internal/property.h"
-#include "internal/evp_int.h"
-#include "internal/provider_algs.h"
-#include "internal/provider_ctx.h"
-#include "internal/providercommon.h"
+#include "internal/nelem.h"
+#include "crypto/evp.h"
+#include "prov/implementations.h"
+#include "prov/provider_ctx.h"
+#include "prov/providercommon.h"
+#include "prov/provider_util.h"
 #include "selftest.h"
+
+#define ALGC(NAMES, FUNC, CHECK) { { NAMES, "fips=yes", FUNC }, CHECK }
+#define ALG(NAMES, FUNC) ALGC(NAMES, FUNC, NULL)
 
 extern OSSL_core_thread_start_fn *c_thread_start;
 
@@ -116,6 +121,49 @@ static OSSL_PARAM core_params[] =
     OSSL_PARAM_END
 };
 
+/*
+ * This routine is currently necessary as bn params are currently processed
+ * using BN_native2bn when raw data is received. This means we need to do
+ * magic to reverse the order of the bytes to match native format.
+ * The array of hexdata is to get around compilers that dont like
+ * strings longer than 509 bytes,
+ */
+static int rawnative_fromhex(const char *hex_data[],
+                             unsigned char **native, size_t *nativelen)
+{
+    int ret = 0;
+    unsigned char *data = NULL;
+    BIGNUM *bn = NULL;
+    int i, slen, datalen, sz;
+    char *str = NULL;
+
+    for (slen = 0, i = 0; hex_data[i] != NULL; ++i)
+        slen += strlen(hex_data[i]);
+    str = OPENSSL_zalloc(slen + 1);
+    if (str == NULL)
+        return 0;
+    for (i = 0; hex_data[i] != NULL; ++i)
+        strcat(str, hex_data[i]);
+
+    if (BN_hex2bn(&bn, str) <= 0)
+        return 0;
+
+    datalen = slen / 2;
+    data = (unsigned char *)str; /* reuse the str buffer */
+
+    sz = BN_bn2nativepad(bn, data, datalen);
+    if (sz <= 0)
+        goto err;
+    ret = 1;
+    *native = data;
+    *nativelen = datalen;
+    data = NULL; /* so it does not get freed */
+err:
+    BN_free(bn);
+    OPENSSL_free(data);
+    return ret;
+}
+
 /* TODO(3.0): To be removed */
 static int dummy_evp_call(void *provctx)
 {
@@ -123,6 +171,58 @@ static int dummy_evp_call(void *provctx)
     EVP_MD_CTX *ctx = EVP_MD_CTX_new();
     EVP_MD *sha256 = EVP_MD_fetch(libctx, "SHA256", NULL);
     EVP_KDF *kdf = EVP_KDF_fetch(libctx, OSSL_KDF_NAME_PBKDF2, NULL);
+    EVP_PKEY_CTX *sctx = NULL, *kctx = NULL;
+    EVP_PKEY *pkey = NULL;
+    OSSL_PARAM *p;
+    OSSL_PARAM params[16];
+    unsigned char sig[64];
+    size_t siglen, sigdgstlen;
+    unsigned char *dsa_p = NULL, *dsa_q = NULL, *dsa_g = NULL;
+    unsigned char *dsa_pub = NULL, *dsa_priv = NULL;
+    size_t dsa_p_len, dsa_q_len, dsa_g_len, dsa_pub_len, dsa_priv_len;
+
+    /* dsa 2048 */
+    static const char *dsa_p_hex[] = {
+        "a29b8872ce8b8423b7d5d21d4b02f57e03e9e6b8a258dc16611ba098ab543415"
+        "e415f156997a3ee236658fa093260de3ad422e05e046f9ec29161a375f0eb4ef"
+        "fcef58285c5d39ed425d7a62ca12896c4a92cb1946f2952a48133f07da364d1b"
+        "df6b0f7139983e693c80059b0eacd1479ba9f2857754ede75f112b07ebbf3534",
+        "8bbf3e01e02f2d473de39453f99dd2367541caca3ba01166343d7b5b58a37bd1"
+        "b7521db2f13b86707132fe09f4cd09dc1618fa3401ebf9cc7b19fa94aa472088"
+        "133d6cb2d35c1179c8c8ff368758d507d9f9a17d46c110fe3144ce9b022b42e4"
+        "19eb4f5388613bfc3e26241a432e8706bc58ef76117278deab6cf692618291b7",
+         NULL
+    };
+    static const char *dsa_q_hex[] = {
+        "a3bfd9ab7884794e383450d5891dc18b65157bdcfcdac51518902867",
+        NULL
+    };
+    static const char *dsa_g_hex[] = {
+        "6819278869c7fd3d2d7b77f77e8150d9ad433bea3ba85efc80415aa3545f78f7"
+        "2296f06cb19ceda06c94b0551cfe6e6f863e31d1de6eed7dab8b0c9df231e084"
+        "34d1184f91d033696bb382f8455e9888f5d31d4784ec40120246f4bea61794bb"
+        "a5866f09746463bdf8e9e108cd9529c3d0f6df80316e2e70aaeb1b26cdb8ad97",
+        "bc3d287e0b8d616c42e65b87db20deb7005bc416747a6470147a68a7820388eb"
+        "f44d52e0628af9cf1b7166d03465f35acc31b6110c43dabc7c5d591e671eaf7c"
+        "252c1c145336a1a4ddf13244d55e835680cab2533b82df2efe55ec18c1e6cd00"
+        "7bb089758bb17c2cbe14441bd093ae66e5976d53733f4fa3269701d31d23d467",
+        NULL
+    };
+    static const char *dsa_pub_hex[] = {
+        "a012b3b170b307227957b7ca2061a816ac7a2b3d9ae995a5119c385b603bf6f6"
+        "c5de4dc5ecb5dfa4a41c68662eb25b638b7e2620ba898d07da6c4991e76cc0ec"
+        "d1ad3421077067e47c18f58a92a72ad43199ecb7bd84e7d3afb9019f0e9dd0fb"
+        "aa487300b13081e33c902876436f7b03c345528481d362815e24fe59dac5ac34",
+        "660d4c8a76cb99a7c7de93eb956cd6bc88e58d901034944a094b01803a43c672"
+        "b9688c0e01d8f4fc91c62a3f88021f7bd6a651b1a88f43aa4ef27653d12bf8b7"
+        "099fdf6b461082f8e939107bfd2f7210087d326c375200f1f51e7e74a3413190"
+        "1bcd0863521ff8d676c48581868736c5e51b16a4e39215ea0b17c4735974c516",
+        NULL
+    };
+    static const char *dsa_priv_hex[] = {
+        "6ccaeef6d73b4e80f11c17b8e9627c036635bac39423505e407e5cb7",
+        NULL
+    };
     char msg[] = "Hello World!";
     const unsigned char exptd[] = {
         0x7f, 0x83, 0xb1, 0x65, 0x7f, 0xf1, 0xfc, 0x53, 0xb9, 0x2d, 0xc1, 0x81,
@@ -181,7 +281,54 @@ static int dummy_evp_call(void *provctx)
     if (!EC_KEY_generate_key(key))
         goto err;
 #endif
+    if (!rawnative_fromhex(dsa_p_hex, &dsa_p, &dsa_p_len)
+            || !rawnative_fromhex(dsa_q_hex, &dsa_q, &dsa_q_len)
+            || !rawnative_fromhex(dsa_g_hex, &dsa_g, &dsa_g_len)
+            || !rawnative_fromhex(dsa_pub_hex, &dsa_pub, &dsa_pub_len)
+            || !rawnative_fromhex(dsa_priv_hex, &dsa_priv, &dsa_priv_len))
+        goto err;
 
+    p = params;
+    *p++ = OSSL_PARAM_construct_BN(OSSL_PKEY_PARAM_FFC_P, dsa_p, dsa_p_len);
+    *p++ = OSSL_PARAM_construct_BN(OSSL_PKEY_PARAM_FFC_Q, dsa_q, dsa_q_len);
+    *p++ = OSSL_PARAM_construct_BN(OSSL_PKEY_PARAM_FFC_G, dsa_g, dsa_g_len);
+    *p++ = OSSL_PARAM_construct_BN(OSSL_PKEY_PARAM_DSA_PUB_KEY,
+                                   dsa_pub, dsa_pub_len);
+    *p++ = OSSL_PARAM_construct_BN(OSSL_PKEY_PARAM_DSA_PRIV_KEY,
+                                   dsa_priv, dsa_priv_len);
+    *p = OSSL_PARAM_construct_end();
+
+    kctx = EVP_PKEY_CTX_new_from_name(libctx, SN_dsa, "");
+    if (kctx == NULL)
+        goto err;
+    if (EVP_PKEY_key_fromdata_init(kctx) <= 0
+            || EVP_PKEY_fromdata(kctx, &pkey, params) <= 0)
+        goto err;
+
+    sctx = EVP_PKEY_CTX_new_from_pkey(libctx, pkey);
+    if (sctx == NULL)
+        goto err;;
+
+    if (EVP_PKEY_sign_init(sctx) <= 0)
+        goto err;
+
+    /* set signature parameters */
+    sigdgstlen = SHA256_DIGEST_LENGTH;
+    p = params;
+    *p++ = OSSL_PARAM_construct_utf8_string(OSSL_SIGNATURE_PARAM_DIGEST,
+                                            SN_sha256,
+                                            strlen(SN_sha256) + 1);
+
+    *p++ = OSSL_PARAM_construct_size_t(OSSL_SIGNATURE_PARAM_DIGEST_SIZE,
+                                       &sigdgstlen);
+    *p = OSSL_PARAM_construct_end();
+    if (EVP_PKEY_CTX_set_params(sctx, params) <= 0)
+        goto err;
+
+    if (EVP_PKEY_sign(sctx, sig, &siglen, dgst, sizeof(dgst)) <= 0
+            || EVP_PKEY_verify_init(sctx) <= 0
+            || EVP_PKEY_verify(sctx, sig, siglen, dgst, sizeof(dgst)) <= 0)
+        goto err;
     ret = 1;
  err:
     BN_CTX_end(bnctx);
@@ -194,6 +341,14 @@ static int dummy_evp_call(void *provctx)
 #ifndef OPENSSL_NO_EC
     EC_KEY_free(key);
 #endif
+    OPENSSL_free(dsa_p);
+    OPENSSL_free(dsa_q);
+    OPENSSL_free(dsa_g);
+    OPENSSL_free(dsa_pub);
+    OPENSSL_free(dsa_priv);
+    EVP_PKEY_free(pkey);
+    EVP_PKEY_CTX_free(kctx);
+    EVP_PKEY_CTX_free(sctx);
     return ret;
 }
 
@@ -227,19 +382,19 @@ const char *ossl_prov_util_nid_to_name(int nid)
     switch (nid) {
     /* Digests */
     case NID_sha1:
-        return "SHA224";
+        return "SHA1";
     case NID_sha224:
-        return "SHA224";
+        return "SHA-224";
     case NID_sha256:
-        return "SHA256";
+        return "SHA-256";
     case NID_sha384:
-        return "SHA384";
+        return "SHA-384";
     case NID_sha512:
-        return "SHA512";
+        return "SHA-512";
     case NID_sha512_224:
-        return "SHA512-224";
+        return "SHA-512/224";
     case NID_sha512_256:
-        return "SHA512-256";
+        return "SHA-512/256";
     case NID_sha3_224:
         return "SHA3-224";
     case NID_sha3_256:
@@ -272,19 +427,42 @@ const char *ossl_prov_util_nid_to_name(int nid)
         return "AES-256-XTS";
     case NID_aes_128_xts:
         return "AES-128-XTS";
-    /* TODO(3.0) Change these when we have aliases */
     case NID_aes_256_gcm:
-        return "id-aes256-GCM";
+        return "AES-256-GCM";
     case NID_aes_192_gcm:
-        return "id-aes192-GCM";
+        return "AES-192-GCM";
     case NID_aes_128_gcm:
-        return "id-aes128-GCM";
+        return "AES-128-GCM";
     case NID_aes_256_ccm:
-        return "id-aes256-CCM";
+        return "AES-256-CCM";
     case NID_aes_192_ccm:
-        return "id-aes192-CCM";
+        return "AES-192-CCM";
     case NID_aes_128_ccm:
-        return "id-aes128-CCM";
+        return "AES-128-CCM";
+    case NID_id_aes256_wrap:
+        return "AES-256-WRAP";
+    case NID_id_aes192_wrap:
+        return "AES-192-WRAP";
+    case NID_id_aes128_wrap:
+        return "AES-128-WRAP";
+    case NID_id_aes256_wrap_pad:
+        return "AES-256-WRAP-PAD";
+    case NID_id_aes192_wrap_pad:
+        return "AES-192-WRAP-PAD";
+    case NID_id_aes128_wrap_pad:
+        return "AES-128-WRAP-PAD";
+    case NID_des_ede3_ecb:
+        return "DES-EDE3";
+    case NID_des_ede3_cbc:
+        return "DES-EDE3-CBC";
+    case NID_aes_256_cbc_hmac_sha256:
+        return "AES-256-CBC-HMAC-SHA256";
+    case NID_aes_128_cbc_hmac_sha256:
+        return "AES-128-CBC-HMAC-SHA256";
+    case NID_aes_256_cbc_hmac_sha1:
+        return "AES-256-CBC-HMAC-SHA1";
+    case NID_aes_128_cbc_hmac_sha1:
+        return "AES-128-CBC-HMAC-SHA1";
     default:
         break;
     }
@@ -292,53 +470,100 @@ const char *ossl_prov_util_nid_to_name(int nid)
     return NULL;
 }
 
+/*
+ * For the algorithm names, we use the following formula for our primary
+ * names:
+ *
+ *     ALGNAME[VERSION?][-SUBNAME[VERSION?]?][-SIZE?][-MODE?]
+ *
+ *     VERSION is only present if there are multiple versions of
+ *     an alg (MD2, MD4, MD5).  It may be omitted if there is only
+ *     one version (if a subsequent version is released in the future,
+ *     we can always change the canonical name, and add the old name
+ *     as an alias).
+ *
+ *     SUBNAME may be present where we are combining multiple
+ *     algorithms together, e.g. MD5-SHA1.
+ *
+ *     SIZE is only present if multiple versions of an algorithm exist
+ *     with different sizes (e.g. AES-128-CBC, AES-256-CBC)
+ *
+ *     MODE is only present where applicable.
+ *
+ * We add diverse other names where applicable, such as the names that
+ * NIST uses, or that are used for ASN.1 OBJECT IDENTIFIERs, or names
+ * we have used historically.
+ */
 static const OSSL_ALGORITHM fips_digests[] = {
-    { "SHA1", "fips=yes", sha1_functions },
-    { "SHA224", "fips=yes", sha224_functions },
-    { "SHA256", "fips=yes", sha256_functions },
-    { "SHA384", "fips=yes", sha384_functions },
-    { "SHA512", "fips=yes", sha512_functions },
-    { "SHA512-224", "fips=yes", sha512_224_functions },
-    { "SHA512-256", "fips=yes", sha512_256_functions },
+    /* Our primary name:NiST name[:our older names] */
+    { "SHA1:SHA-1", "fips=yes", sha1_functions },
+    { "SHA2-224:SHA-224:SHA224", "fips=yes", sha224_functions },
+    { "SHA2-256:SHA-256:SHA256", "fips=yes", sha256_functions },
+    { "SHA2-384:SHA-384:SHA384", "fips=yes", sha384_functions },
+    { "SHA2-512:SHA-512:SHA512", "fips=yes", sha512_functions },
+    { "SHA2-512/224:SHA-512/224:SHA512-224", "fips=yes",
+      sha512_224_functions },
+    { "SHA2-512/256:SHA-512/256:SHA512-256", "fips=yes",
+      sha512_256_functions },
+
+    /* We agree with NIST here, so one name only */
     { "SHA3-224", "fips=yes", sha3_224_functions },
     { "SHA3-256", "fips=yes", sha3_256_functions },
     { "SHA3-384", "fips=yes", sha3_384_functions },
     { "SHA3-512", "fips=yes", sha3_512_functions },
     /*
-     * KECCAK_KMAC128 and KECCAK_KMAC256 as hashes are mostly useful for
-     * the KMAC128 and KMAC256.
+     * KECCAK-KMAC-128 and KECCAK-KMAC-256 as hashes are mostly useful for
+     * KMAC128 and KMAC256.
      */
-    { "KECCAK_KMAC128", "fips=yes", keccak_kmac_128_functions },
-    { "KECCAK_KMAC256", "fips=yes", keccak_kmac_256_functions },
+    { "KECCAK-KMAC-128:KECCAK-KMAC128", "fips=yes", keccak_kmac_128_functions },
+    { "KECCAK-KMAC-256:KECCAK-KMAC256", "fips=yes", keccak_kmac_256_functions },
 
     { NULL, NULL, NULL }
 };
 
-static const OSSL_ALGORITHM fips_ciphers[] = {
-    { "AES-256-ECB", "fips=yes", aes256ecb_functions },
-    { "AES-192-ECB", "fips=yes", aes192ecb_functions },
-    { "AES-128-ECB", "fips=yes", aes128ecb_functions },
-    { "AES-256-CBC", "fips=yes", aes256cbc_functions },
-    { "AES-192-CBC", "fips=yes", aes192cbc_functions },
-    { "AES-128-CBC", "fips=yes", aes128cbc_functions },
-    { "AES-256-CTR", "fips=yes", aes256ctr_functions },
-    { "AES-192-CTR", "fips=yes", aes192ctr_functions },
-    { "AES-128-CTR", "fips=yes", aes128ctr_functions },
-    { "AES-256-XTS", "fips=yes", aes256xts_functions },
-    { "AES-128-XTS", "fips=yes", aes128xts_functions },
-    /* TODO(3.0) Add aliases for these ciphers */
-    { "id-aes256-GCM", "fips=yes", aes256gcm_functions },
-    { "id-aes192-GCM", "fips=yes", aes192gcm_functions },
-    { "id-aes128-GCM", "fips=yes", aes128gcm_functions },
-    { "id-aes256-CCM", "fips=yes", aes256ccm_functions },
-    { "id-aes192-CCM", "fips=yes", aes192ccm_functions },
-    { "id-aes128-CCM", "fips=yes", aes128ccm_functions },
+static const OSSL_ALGORITHM_CAPABLE fips_ciphers[] = {
+    /* Our primary name[:ASN.1 OID name][:our older names] */
+    ALG("AES-256-ECB", aes256ecb_functions),
+    ALG("AES-192-ECB", aes192ecb_functions),
+    ALG("AES-128-ECB", aes128ecb_functions),
+    ALG("AES-256-CBC", aes256cbc_functions),
+    ALG("AES-192-CBC", aes192cbc_functions),
+    ALG("AES-128-CBC", aes128cbc_functions),
+    ALG("AES-256-CTR", aes256ctr_functions),
+    ALG("AES-192-CTR", aes192ctr_functions),
+    ALG("AES-128-CTR", aes128ctr_functions),
+    ALG("AES-256-XTS", aes256xts_functions),
+    ALG("AES-128-XTS", aes128xts_functions),
+    ALG("AES-256-GCM:id-aes256-GCM", aes256gcm_functions),
+    ALG("AES-192-GCM:id-aes192-GCM", aes192gcm_functions),
+    ALG("AES-128-GCM:id-aes128-GCM", aes128gcm_functions),
+    ALG("AES-256-CCM:id-aes256-CCM", aes256ccm_functions),
+    ALG("AES-192-CCM:id-aes192-CCM", aes192ccm_functions),
+    ALG("AES-128-CCM:id-aes128-CCM", aes128ccm_functions),
+    ALG("AES-256-WRAP:id-aes256-wrap:AES256-WRAP", aes256wrap_functions),
+    ALG("AES-192-WRAP:id-aes192-wrap:AES192-WRAP", aes192wrap_functions),
+    ALG("AES-128-WRAP:id-aes128-wrap:AES128-WRAP", aes128wrap_functions),
+    ALG("AES-256-WRAP-PAD:id-aes256-wrap-pad:AES256-WRAP-PAD",
+        aes256wrappad_functions),
+    ALG("AES-192-WRAP-PAD:id-aes192-wrap-pad:AES192-WRAP-PAD",
+        aes192wrappad_functions),
+    ALG("AES-128-WRAP-PAD:id-aes128-wrap-pad:AES128-WRAP-PAD",
+        aes128wrappad_functions),
+    ALGC("AES-128-CBC-HMAC-SHA1", aes128cbc_hmac_sha1_functions,
+         cipher_capable_aes_cbc_hmac_sha1),
+    ALGC("AES-256-CBC-HMAC-SHA1", aes256cbc_hmac_sha1_functions,
+         cipher_capable_aes_cbc_hmac_sha1),
+    ALGC("AES-128-CBC-HMAC-SHA256", aes128cbc_hmac_sha256_functions,
+         cipher_capable_aes_cbc_hmac_sha256),
+    ALGC("AES-256-CBC-HMAC-SHA256", aes256cbc_hmac_sha256_functions,
+         cipher_capable_aes_cbc_hmac_sha256),
 #ifndef OPENSSL_NO_DES
-    { "DES-EDE3", "fips=yes", tdes_ede3_ecb_functions },
-    { "DES-EDE3-CBC", "fips=yes", tdes_ede3_cbc_functions },
+    ALG("DES-EDE3-ECB:DES-EDE3", tdes_ede3_ecb_functions),
+    ALG("DES-EDE3-CBC:DES3", tdes_ede3_cbc_functions),
 #endif  /* OPENSSL_NO_DES */
-    { NULL, NULL, NULL }
+    { { NULL, NULL, NULL }, NULL }
 };
+static OSSL_ALGORITHM exported_fips_ciphers[OSSL_NELEM(fips_ciphers)];
 
 static const OSSL_ALGORITHM fips_macs[] = {
 #ifndef OPENSSL_NO_CMAC
@@ -346,17 +571,32 @@ static const OSSL_ALGORITHM fips_macs[] = {
 #endif
     { "GMAC", "fips=yes", gmac_functions },
     { "HMAC", "fips=yes", hmac_functions },
-    { "KMAC128", "fips=yes", kmac128_functions },
-    { "KMAC256", "fips=yes", kmac256_functions },
+    { "KMAC-128:KMAC128", "fips=yes", kmac128_functions },
+    { "KMAC-256:KMAC256", "fips=yes", kmac256_functions },
     { NULL, NULL, NULL }
 };
 
 static const OSSL_ALGORITHM fips_kdfs[] = {
-    { OSSL_KDF_NAME_HKDF, "fips=yes", kdf_hkdf_functions },
-    { OSSL_KDF_NAME_SSKDF, "fips=yes", kdf_sskdf_functions },
-    { OSSL_KDF_NAME_PBKDF2, "fips=yes", kdf_pbkdf2_functions },
-    { OSSL_KDF_NAME_TLS1_PRF, "fips=yes", kdf_tls1_prf_functions },
-   { NULL, NULL, NULL }
+    { "HKDF", "fips=yes", kdf_hkdf_functions },
+    { "SSKDF", "fips=yes", kdf_sskdf_functions },
+    { "PBKDF2", "fips=yes", kdf_pbkdf2_functions },
+    { "TLS1-PRF", "fips=yes", kdf_tls1_prf_functions },
+    { "KBKDF", "fips=yes", kdf_kbkdf_functions },
+    { NULL, NULL, NULL }
+};
+
+static const OSSL_ALGORITHM fips_signature[] = {
+#ifndef OPENSSL_NO_DSA
+    { "DSA:dsaEncryption", "fips=yes", dsa_signature_functions },
+#endif
+    { NULL, NULL, NULL }
+};
+
+static const OSSL_ALGORITHM fips_keymgmt[] = {
+#ifndef OPENSSL_NO_DSA
+    { "DSA", "fips=yes", dsa_keymgmt_functions },
+#endif
+    { NULL, NULL, NULL }
 };
 
 static const OSSL_ALGORITHM *fips_query(OSSL_PROVIDER *prov,
@@ -368,11 +608,16 @@ static const OSSL_ALGORITHM *fips_query(OSSL_PROVIDER *prov,
     case OSSL_OP_DIGEST:
         return fips_digests;
     case OSSL_OP_CIPHER:
-        return fips_ciphers;
+        ossl_prov_cache_exported_algorithms(fips_ciphers, exported_fips_ciphers);
+        return exported_fips_ciphers;
     case OSSL_OP_MAC:
         return fips_macs;
     case OSSL_OP_KDF:
         return fips_kdfs;
+    case OSSL_OP_KEYMGMT:
+        return fips_keymgmt;
+    case OSSL_OP_SIGNATURE:
+        return fips_signature;
     }
     return NULL;
 }
@@ -491,23 +736,22 @@ int OSSL_provider_init(const OSSL_PROVIDER *provider,
     fgbl->prov = provider;
 
     selftest_params.libctx = PROV_LIBRARY_CONTEXT_OF(ctx);
-    if (!SELF_TEST_post(&selftest_params)) {
+    if (!SELF_TEST_post(&selftest_params, 0)) {
+        OPENSSL_CTX_free(ctx);
+        return 0;
+    }
+
+    /*
+     * TODO(3.0): Remove me. This is just a dummy call to demonstrate making
+     * EVP calls from within the FIPS module.
+     */
+    if (!dummy_evp_call(ctx)) {
         OPENSSL_CTX_free(ctx);
         return 0;
     }
 
     *out = fips_dispatch_table;
     *provctx = ctx;
-
-    /*
-     * TODO(3.0): Remove me. This is just a dummy call to demonstrate making
-     * EVP calls from within the FIPS module.
-     */
-    if (!dummy_evp_call(*provctx)) {
-        OPENSSL_CTX_free(*provctx);
-        *provctx = NULL;
-        return 0;
-    }
 
     return 1;
 }

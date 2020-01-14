@@ -8,8 +8,14 @@
  * https://www.openssl.org/source/license.html
  */
 
-#ifndef HEADER_TSERR_H
-# define HEADER_TSERR_H
+#ifndef OPENSSL_TSERR_H
+# define OPENSSL_TSERR_H
+# pragma once
+
+# include <openssl/macros.h>
+# ifndef OPENSSL_NO_DEPRECATED_3_0
+#  define HEADER_TSERR_H
+# endif
 
 # include <openssl/opensslconf.h>
 # include <openssl/symhacks.h>
@@ -27,7 +33,7 @@ int ERR_load_TS_strings(void);
 /*
  * TS function codes.
  */
-# if !OPENSSL_API_3
+# ifndef OPENSSL_NO_DEPRECATED_3_0
 #   define TS_F_DEF_SERIAL_CB                               0
 #   define TS_F_DEF_TIME_CB                                 0
 #   define TS_F_INT_TS_RESP_VERIFY_TOKEN                    0

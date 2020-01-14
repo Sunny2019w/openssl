@@ -7,6 +7,13 @@
  * https://www.openssl.org/source/license.html
  */
 
+/*
+ * AES low level APIs are deprecated for public use, but still ok for internal
+ * use where we're using them to implement the higher level EVP interface, as is
+ * the case here.
+ */
+#include "internal/deprecated.h"
+
 #include <stdio.h>
 #include <string.h>
 #include <openssl/opensslconf.h>
@@ -16,9 +23,9 @@
 #include <openssl/sha.h>
 #include <openssl/rand.h>
 #include "internal/cryptlib.h"
-#include "internal/modes_int.h"
-#include "internal/constant_time_locl.h"
-#include "internal/evp_int.h"
+#include "crypto/modes.h"
+#include "internal/constant_time.h"
+#include "crypto/evp.h"
 
 typedef struct {
     AES_KEY ks;

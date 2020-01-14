@@ -18,14 +18,14 @@ typedef enum OPTION_choice {
 } OPTION_CHOICE;
 
 const OPTIONS info_options[] = {
+
+    OPT_SECTION("General"),
     {"help", OPT_HELP, '-', "Display this summary"},
+
+    OPT_SECTION("Output"),
     {"configdir", OPT_CONFIGDIR, '-', "Default configuration file directory"},
-    {"c", OPT_CONFIGDIR, '-', "Default configuration file directory"},
     {"enginesdir", OPT_ENGINESDIR, '-', "Default engine module directory"},
-    {"e", OPT_ENGINESDIR, '-', "Default engine module directory"},
-    {"modulesdir", OPT_ENGINESDIR, '-',
-     "Default module directory (other than engine modules)"},
-    {"m", OPT_ENGINESDIR, '-',
+    {"modulesdir", OPT_MODULESDIR, '-',
      "Default module directory (other than engine modules)"},
     {"dsoext", OPT_DSOEXT, '-', "Configured extension for modules"},
     {"dirnamesep", OPT_DIRNAMESEP, '-', "Directory-filename separator"},

@@ -8,8 +8,14 @@
  * https://www.openssl.org/source/license.html
  */
 
-#ifndef HEADER_ENGINEERR_H
-# define HEADER_ENGINEERR_H
+#ifndef OPENSSL_ENGINEERR_H
+# define OPENSSL_ENGINEERR_H
+# pragma once
+
+# include <openssl/macros.h>
+# ifndef OPENSSL_NO_DEPRECATED_3_0
+#  define HEADER_ENGINEERR_H
+# endif
 
 # include <openssl/opensslconf.h>
 # include <openssl/symhacks.h>
@@ -27,7 +33,7 @@ int ERR_load_ENGINE_strings(void);
 /*
  * ENGINE function codes.
  */
-# if !OPENSSL_API_3
+# ifndef OPENSSL_NO_DEPRECATED_3_0
 #   define ENGINE_F_DIGEST_UPDATE                           0
 #   define ENGINE_F_DYNAMIC_CTRL                            0
 #   define ENGINE_F_DYNAMIC_GET_DATA_CTX                    0

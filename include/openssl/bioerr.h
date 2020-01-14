@@ -8,8 +8,14 @@
  * https://www.openssl.org/source/license.html
  */
 
-#ifndef HEADER_BIOERR_H
-# define HEADER_BIOERR_H
+#ifndef OPENSSL_BIOERR_H
+# define OPENSSL_BIOERR_H
+# pragma once
+
+# include <openssl/macros.h>
+# ifndef OPENSSL_NO_DEPRECATED_3_0
+#  define HEADER_BIOERR_H
+# endif
 
 # include <openssl/opensslconf.h>
 # include <openssl/symhacks.h>
@@ -23,7 +29,7 @@ int ERR_load_BIO_strings(void);
 /*
  * BIO function codes.
  */
-# if !OPENSSL_API_3
+# ifndef OPENSSL_NO_DEPRECATED_3_0
 #  define BIO_F_ACPT_STATE                                 0
 #  define BIO_F_ADDRINFO_WRAP                              0
 #  define BIO_F_ADDR_STRINGS                               0

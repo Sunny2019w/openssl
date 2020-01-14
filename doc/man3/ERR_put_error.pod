@@ -23,9 +23,9 @@ Deprecated since OpenSSL 3.0:
 =head1 DESCRIPTION
 
 ERR_raise() adds a new error to the thread's error queue.  The
-error occured in the library B<lib> for the reason given by the
+error occurred in the library B<lib> for the reason given by the
 B<reason> code.  Furthermore, the name of the file, the line, and name
-of the function where the error occured is saved with the error
+of the function where the error occurred is saved with the error
 record.
 
 ERR_raise_data() does the same thing as ERR_raise(), but also lets the
@@ -59,14 +59,14 @@ descriptions. For example, the function ssl3_read_bytes() reports a
 
  SSLerr(SSL_F_SSL3_READ_BYTES, SSL_R_SSL_HANDSHAKE_FAILURE);
 
-Function and reason codes should consist of upper case characters,
+Function and reason codes should consist of uppercase characters,
 numbers and underscores only. The error file generation script translates
 function codes into function names by looking in the header files
 for an appropriate function name, if none is found it just uses
 the capitalized form such as "SSL3_READ_BYTES" in the above example.
 
 The trailing section of a reason code (after the "_R_") is translated
-into lower case and underscores changed to spaces.
+into lowercase and underscores changed to spaces.
 
 Although a library will normally report errors using its own specific
 XXXerr macro, another library's macro can be used. This is normally

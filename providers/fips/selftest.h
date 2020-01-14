@@ -8,7 +8,7 @@
  */
 
 #include <openssl/core_numbers.h>
-#include <openssl/ossl_typ.h>
+#include <openssl/types.h>
 
 typedef struct self_test_post_params_st {
     /* FIPS module integrity check parameters */
@@ -29,4 +29,4 @@ typedef struct self_test_post_params_st {
 
 } SELF_TEST_POST_PARAMS;
 
-int SELF_TEST_post(SELF_TEST_POST_PARAMS *st);
+int SELF_TEST_post(SELF_TEST_POST_PARAMS *st, int on_demand_test);

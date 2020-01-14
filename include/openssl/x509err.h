@@ -8,8 +8,14 @@
  * https://www.openssl.org/source/license.html
  */
 
-#ifndef HEADER_X509ERR_H
-# define HEADER_X509ERR_H
+#ifndef OPENSSL_X509ERR_H
+# define OPENSSL_X509ERR_H
+# pragma once
+
+# include <openssl/macros.h>
+# ifndef OPENSSL_NO_DEPRECATED_3_0
+#  define HEADER_X509ERR_H
+# endif
 
 # include <openssl/opensslconf.h>
 # include <openssl/symhacks.h>
@@ -23,7 +29,7 @@ int ERR_load_X509_strings(void);
 /*
  * X509 function codes.
  */
-# if !OPENSSL_API_3
+# ifndef OPENSSL_NO_DEPRECATED_3_0
 #  define X509_F_ADD_CERT_DIR                              0
 #  define X509_F_BUILD_CHAIN                               0
 #  define X509_F_BY_FILE_CTRL                              0

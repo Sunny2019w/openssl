@@ -7,10 +7,16 @@
  * https://www.openssl.org/source/license.html
  */
 
+/*
+ * MDC2 low level APIs are deprecated for public use, but still ok for
+ * internal use.
+ */
+#include "internal/deprecated.h"
+
 #include <string.h>
 #include <openssl/provider.h>
 #include <openssl/params.h>
-#include <openssl/ossl_typ.h>
+#include <openssl/types.h>
 #include <openssl/core_names.h>
 #include "internal/nelem.h"
 #include "testutil.h"

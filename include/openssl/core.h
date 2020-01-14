@@ -7,11 +7,11 @@
  * https://www.openssl.org/source/license.html
  */
 
-#ifndef OSSL_CORE_H
-# define OSSL_CORE_H
+#ifndef OPENSSL_CORE_H
+# define OPENSSL_CORE_H
 
 # include <stddef.h>
-# include <openssl/ossl_typ.h>
+# include <openssl/types.h>
 
 # ifdef __cplusplus
 extern "C" {
@@ -55,13 +55,13 @@ struct ossl_item_st {
 };
 
 /*
- * Type to tie together algorithm name, property definition string and
+ * Type to tie together algorithm names, property definition string and
  * the algorithm implementation in the form of a dispatch table.
  *
- * An array of these is always terminated by algorithm_name == NULL
+ * An array of these is always terminated by algorithm_names == NULL
  */
 struct ossl_algorithm_st {
-    const char *algorithm_name;      /* key */
+    const char *algorithm_names;     /* key */
     const char *property_definition; /* key */
     const OSSL_DISPATCH *implementation;
 };
@@ -186,6 +186,31 @@ extern OSSL_provider_init_fn OSSL_provider_init;
 # ifdef __VMS
 #  pragma names restore
 # endif
+
+/*
+ * Generic callback function signature.
+ *
+ * The expectation is that any provider function that wants to offer
+ * a callback / hook can do so by taking an argument with this type,
+ * as well as a pointer to caller-specific data.  When calling the
+ * callback, the provider function can populate an OSSL_PARAM array
+ * with data of its choice and pass that in the callback call, along
+ * with the caller data argument.
+ *
+ * libcrypto may use the OSSL_PARAM array to create arguments for an
+ * application callback it knows about.
+ */
+typedef int (OSSL_CALLBACK)(const OSSL_PARAM params[], void *arg);
+
+/*
+ * Passphrase callback function signature
+ *
+ * This is similar to the generic callback function above, but adds a
+ * result parameter.
+ */
+typedef int (OSSL_PASSPHRASE_CALLBACK)(char *pass, size_t pass_size,
+                                       size_t *pass_len,
+                                       const OSSL_PARAM params[], void *arg);
 
 # ifdef __cplusplus
 }

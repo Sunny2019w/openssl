@@ -8,8 +8,14 @@
  * https://www.openssl.org/source/license.html
  */
 
-#ifndef HEADER_PEMERR_H
-# define HEADER_PEMERR_H
+#ifndef OPENSSL_PEMERR_H
+# define OPENSSL_PEMERR_H
+# pragma once
+
+# include <openssl/macros.h>
+# ifndef OPENSSL_NO_DEPRECATED_3_0
+#  define HEADER_PEMERR_H
+# endif
 
 # include <openssl/opensslconf.h>
 # include <openssl/symhacks.h>
@@ -23,7 +29,7 @@ int ERR_load_PEM_strings(void);
 /*
  * PEM function codes.
  */
-# if !OPENSSL_API_3
+# ifndef OPENSSL_NO_DEPRECATED_3_0
 #  define PEM_F_B2I_DSS                                    0
 #  define PEM_F_B2I_PVK_BIO                                0
 #  define PEM_F_B2I_RSA                                    0

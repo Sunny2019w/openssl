@@ -9,8 +9,8 @@
 
 #include <openssl/crypto.h>
 #include <openssl/core_numbers.h>
-#include "internal/cryptlib_int.h"
-#include "internal/providercommon.h"
+#include "crypto/cryptlib.h"
+#include "prov/providercommon.h"
 #include "internal/thread_once.h"
 
 #ifdef FIPS_MODE
@@ -380,6 +380,8 @@ static int init_thread_deregister(void *index, int all)
     int i;
 
     gtr = get_global_tevent_register();
+    if (gtr == NULL)
+        return 0;
     if (!all)
         CRYPTO_THREAD_write_lock(gtr->lock);
     for (i = 0; i < sk_THREAD_EVENT_HANDLER_PTR_num(gtr->skhands); i++) {

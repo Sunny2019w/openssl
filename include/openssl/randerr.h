@@ -8,8 +8,14 @@
  * https://www.openssl.org/source/license.html
  */
 
-#ifndef HEADER_RANDERR_H
-# define HEADER_RANDERR_H
+#ifndef OPENSSL_RANDERR_H
+# define OPENSSL_RANDERR_H
+# pragma once
+
+# include <openssl/macros.h>
+# ifndef OPENSSL_NO_DEPRECATED_3_0
+#  define HEADER_RANDERR_H
+# endif
 
 # include <openssl/opensslconf.h>
 # include <openssl/symhacks.h>
@@ -23,7 +29,7 @@ int ERR_load_RAND_strings(void);
 /*
  * RAND function codes.
  */
-# if !OPENSSL_API_3
+# ifndef OPENSSL_NO_DEPRECATED_3_0
 #  define RAND_F_DRBG_BYTES                                0
 #  define RAND_F_DRBG_CTR_INIT                             0
 #  define RAND_F_DRBG_GET_ENTROPY                          0
@@ -51,6 +57,8 @@ int ERR_load_RAND_strings(void);
 #  define RAND_F_RAND_POOL_BYTES_NEEDED                    0
 #  define RAND_F_RAND_POOL_GROW                            0
 #  define RAND_F_RAND_POOL_NEW                             0
+#  define RAND_F_RAND_PRIV_BYTES_EX                        0
+#  define RAND_F_RAND_PSEUDO_BYTES                         0
 #  define RAND_F_RAND_WRITE_FILE                           0
 # endif
 

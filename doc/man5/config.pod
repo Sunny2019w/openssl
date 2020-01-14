@@ -13,9 +13,9 @@ files for the B<x509> utility. OpenSSL applications can also use the
 CONF library for their own purposes.
 
 A configuration file is divided into a number of sections. Each section
-starts with a line B<[ section_name ]> and ends when a new section is
+starts with a line C<[section_name]> and ends when a new section is
 started or end of file is reached. A section name can consist of
-alphanumeric characters and underscores.
+alphanumeric characters and underscores. The brackets are required.
 
 The first section of a configuration file is special and is referred
 to as the B<default> section. This section is usually unnamed and spans from the
@@ -50,6 +50,9 @@ not support the B<.include> syntax. They would bail out with error
 if the B<=> character is not present but with it they just ignore
 the include.
 
+Pragmas can be specified with the B<.pragma> directive.
+See L</PRAGMAS> for mor information.
+
 Each section in a configuration file consists of a number of name and
 value pairs of the form B<name=value>
 
@@ -77,6 +80,40 @@ the sequences B<\n>, B<\r>, B<\b> and B<\t> are recognized.
 
 All expansion and escape rules as described above that apply to B<value>
 also apply to the path of the B<.include> directive.
+
+=head1 PRAGMAS
+
+Pragmas can be used to change the behavior of the configuration file
+parser, among others.  Currently supported pragmas are:
+
+=over 4
+
+=item B<.pragma> B<dollarid>:I<value>
+
+I<value> can be one of:
+
+=over 4
+
+=item  B<"on"> or B<"true">
+
+this signifies that dollar signs are considered an identity character
+from this point on and that variable expansion requires the use of
+braces or parentheses.  In other words, C<foo$bar> will be considered
+a name instead of C<foo> followed by the expansion of the variable
+C<bar>.
+This is suitable for platforms where the dollar sign is commonly used
+as part of names.
+
+=item B<"off"> or B<"false">
+
+Turns this pragma off, i.e. C<foo$bar> will be interpreted as C<foo>
+followed by the expansion of the variable C<bar>.
+
+=back
+
+By default, this pragma is turned off.
+
+=back
 
 =head1 OPENSSL LIBRARY CONFIGURATION
 
@@ -263,7 +300,7 @@ The command B<identity> is used to give the provider name. For example:
  identity = myfoo
 
 The parameter B<module> loads and adds a provider module from the
-given module path.  That path may be a simple file name, a relative
+given module path.  That path may be a simple filename, a relative
 path or an absolute path.
 
 The parameter B<activate> determines whether to activate the
@@ -379,7 +416,6 @@ mentioned above.
  # This is the default section.
 
  HOME=/temp
- RANDFILE= ${ENV::HOME}/.rnd
  configdir=$ENV::HOME/config
 
  [ section_one ]
@@ -507,9 +543,20 @@ Files are loaded in a single pass. This means that an variable expansion
 will only work if the variables referenced are defined earlier in the
 file.
 
+=head1 HISTORY
+
+An undocumented API, NCONF_WIN32(), used a slightly different set
+of parsing rules there were intended to be tailored to
+the Microsoft Windows platform.
+Specifically, the backslash character was not an escape character and
+could be used in pathnames, only the double-quote character was recognized,
+and comments began with a semi-colon.
+This function was deprecated in OpenSSL 3.0; applications with
+configuration files using that syntax will have to be modified.
+
 =head1 SEE ALSO
 
-L<x509(1)>, L<req(1)>, L<ca(1)>, L<fips_config(5)>
+L<openssl-x509(1)>, L<openssl-req(1)>, L<openssl-ca(1)>, L<fips_config(5)>
 
 =head1 COPYRIGHT
 

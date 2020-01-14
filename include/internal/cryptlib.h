@@ -7,8 +7,8 @@
  * https://www.openssl.org/source/license.html
  */
 
-#ifndef HEADER_CRYPTLIB_H
-# define HEADER_CRYPTLIB_H
+#ifndef OSSL_INTERNAL_CRYPTLIB_H
+# define OSSL_INTERNAL_CRYPTLIB_H
 
 # include <stdlib.h>
 # include <string.h>
@@ -144,7 +144,7 @@ typedef struct ossl_ex_data_global_st {
 # define OPENSSL_CTX_METHOD_STORE_RUN_ONCE_INDEX            2
 # define OPENSSL_CTX_MAX_RUN_ONCE                           3
 
-# define OPENSSL_CTX_DEFAULT_METHOD_STORE_INDEX     0
+# define OPENSSL_CTX_EVP_METHOD_STORE_INDEX         0
 # define OPENSSL_CTX_PROVIDER_STORE_INDEX           1
 # define OPENSSL_CTX_PROPERTY_DEFN_INDEX            2
 # define OPENSSL_CTX_PROPERTY_STRING_INDEX          3
@@ -154,7 +154,8 @@ typedef struct ossl_ex_data_global_st {
 # define OPENSSL_CTX_RAND_CRNGT_INDEX               7
 # define OPENSSL_CTX_THREAD_EVENT_HANDLER_INDEX     8
 # define OPENSSL_CTX_FIPS_PROV_INDEX                9
-# define OPENSSL_CTX_MAX_INDEXES                   10
+# define OPENSSL_CTX_SERIALIZER_STORE_INDEX        10
+# define OPENSSL_CTX_MAX_INDEXES                   11
 
 typedef struct openssl_ctx_method {
     void *(*new_func)(OPENSSL_CTX *ctx);

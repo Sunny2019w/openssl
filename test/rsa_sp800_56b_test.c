@@ -26,7 +26,7 @@ int setup_tests(void)
     return 1;
 }
 #else
-# include "rsa_locl.h"
+# include "rsa_local.h"
 # include <openssl/rsa.h>
 
 /* taken from RSA2 cavs data */
@@ -223,6 +223,8 @@ static int test_check_prime_factor_range(void)
           && TEST_true(BN_set_word(p, 0x10))
           && TEST_false(rsa_check_prime_factor_range(p, 8, ctx))
           && TEST_true(BN_set_word(p, 0xB))
+          && TEST_false(rsa_check_prime_factor_range(p, 8, ctx))
+          && TEST_true(BN_set_word(p, 0xC))
           && TEST_true(rsa_check_prime_factor_range(p, 8, ctx))
           && TEST_true(BN_set_word(p, 0xF))
           && TEST_true(rsa_check_prime_factor_range(p, 8, ctx))
