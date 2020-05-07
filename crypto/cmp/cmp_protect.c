@@ -1,5 +1,5 @@
 /*
- * Copyright 2007-2019 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 2007-2020 The OpenSSL Project Authors. All Rights Reserved.
  * Copyright Nokia 2007-2019
  * Copyright Siemens AG 2015-2019
  *
@@ -18,6 +18,8 @@
 #include <openssl/err.h>
 #include <openssl/x509.h>
 
+DEFINE_STACK_OF(X509)
+
 /*
  * This function is also used for verification from cmp_vfy.
  *
@@ -35,7 +37,7 @@ ASN1_BIT_STRING *ossl_cmp_calc_protection(const OSSL_CMP_MSG *msg,
                                           EVP_PKEY *pkey)
 {
     ASN1_BIT_STRING *prot = NULL;
-    CMP_PROTECTEDPART prot_part;
+    OSSL_CMP_PROTECTEDPART prot_part;
     const ASN1_OBJECT *algorOID = NULL;
     int len;
     size_t prot_part_der_len;
@@ -58,7 +60,7 @@ ASN1_BIT_STRING *ossl_cmp_calc_protection(const OSSL_CMP_MSG *msg,
     prot_part.header = msg->header;
     prot_part.body = msg->body;
 
-    len = i2d_CMP_PROTECTEDPART(&prot_part, &prot_part_der);
+    len = i2d_OSSL_CMP_PROTECTEDPART(&prot_part, &prot_part_der);
     if (len < 0 || prot_part_der == NULL) {
         CMPerr(0, CMP_R_ERROR_CALCULATING_PROTECTION);
         goto end;
@@ -156,7 +158,7 @@ int ossl_cmp_msg_add_extraCerts(OSSL_CMP_CTX *ctx, OSSL_CMP_MSG *msg)
             STACK_OF(X509) *chain =
                 ossl_cmp_build_cert_chain(ctx->untrusted_certs, ctx->clCert);
             int res = ossl_cmp_sk_X509_add1_certs(msg->extraCerts, chain,
-                                                  1 /* no self-signed */,
+                                                  1 /* no self-issued */,
                                                   1 /* no duplicates */, 0);
             sk_X509_pop_free(chain, X509_free);
             if (res == 0)
@@ -286,6 +288,8 @@ int ossl_cmp_msg_protect(OSSL_CMP_CTX *ctx, OSSL_CMP_MSG *msg)
              * to section 5.1.1
              */
             subjKeyIDStr = X509_get0_subject_key_id(ctx->clCert);
+            if (subjKeyIDStr == NULL)
+                subjKeyIDStr = ctx->referenceValue; /* fallback */
             if (subjKeyIDStr != NULL
                     && !ossl_cmp_hdr_set1_senderKID(msg->header, subjKeyIDStr))
                 goto err;
@@ -306,7 +310,18 @@ int ossl_cmp_msg_protect(OSSL_CMP_CTX *ctx, OSSL_CMP_MSG *msg)
         }
     }
 
-    return 1;
+    /*
+     * As required by RFC 4210 section 5.1.1., if the sender name is not known
+     * to the client it set to NULL-DN. In this case for identification at least
+     * the senderKID must be set, where we took the referenceValue as fallback.
+     */
+
+    if (ossl_cmp_general_name_is_NULL_DN(msg->header->sender)
+            && msg->header->senderKID == NULL)
+        CMPerr(0, CMP_R_MISSING_SENDER_IDENTIFICATION);
+    else
+        return 1;
+
  err:
     CMPerr(0, CMP_R_ERROR_PROTECTING_MESSAGE);
     return 0;

@@ -1,5 +1,5 @@
 /*
- * Copyright 1995-2018 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 1995-2020 The OpenSSL Project Authors. All Rights Reserved.
  * Copyright (c) 2002, Oracle and/or its affiliates. All rights reserved
  *
  * Licensed under the Apache License 2.0 (the "License").  You may not use
@@ -24,6 +24,9 @@
 #include "ssl_local.h"
 #include "ssl_cert_table.h"
 #include "internal/thread_once.h"
+
+DEFINE_STACK_OF(X509)
+DEFINE_STACK_OF(X509_NAME)
 
 static int ssl_security_default_callback(const SSL *s, const SSL_CTX *ctx,
                                          int op, int bits, int nid, void *other,
@@ -253,11 +256,20 @@ void ssl_cert_free(CERT *c)
 int ssl_cert_set0_chain(SSL *s, SSL_CTX *ctx, STACK_OF(X509) *chain)
 {
     int i, r;
-    CERT_PKEY *cpk = s ? s->cert->key : ctx->cert->key;
+    CERT_PKEY *cpk = s != NULL ? s->cert->key : ctx->cert->key;
+    SSL_CTX *realctx = s != NULL ? s->ctx : ctx;
+
     if (!cpk)
         return 0;
     for (i = 0; i < sk_X509_num(chain); i++) {
-        r = ssl_security_cert(s, ctx, sk_X509_value(chain, i), 0, 0);
+        X509 *x = sk_X509_value(chain, i);
+
+        if (!X509v3_cache_extensions(x, realctx->libctx, realctx->propq)) {
+            SSLerr(0, ERR_LIB_X509);
+            return 0;
+        }
+
+        r = ssl_security_cert(s, ctx, x, 0, 0);
         if (r != 1) {
             SSLerr(SSL_F_SSL_CERT_SET0_CHAIN, r);
             return 0;
@@ -377,7 +389,7 @@ int ssl_verify_cert_chain(SSL *s, STACK_OF(X509) *sk)
     else
         verify_store = s->ctx->cert_store;
 
-    ctx = X509_STORE_CTX_new();
+    ctx = X509_STORE_CTX_new_with_libctx(s->ctx->libctx, s->ctx->propq);
     if (ctx == NULL) {
         SSLerr(SSL_F_SSL_VERIFY_CERT_CHAIN, ERR_R_MALLOC_FAILURE);
         return 0;
@@ -860,7 +872,10 @@ int ssl_build_cert_chain(SSL *s, SSL_CTX *ctx, int flags)
             untrusted = cpk->chain;
     }
 
-    xs_ctx = X509_STORE_CTX_new();
+    if (s == NULL)
+        xs_ctx = X509_STORE_CTX_new_with_libctx(ctx->libctx, ctx->propq);
+    else
+        xs_ctx = X509_STORE_CTX_new_with_libctx(s->ctx->libctx, s->ctx->propq);
     if (xs_ctx == NULL) {
         SSLerr(SSL_F_SSL_BUILD_CERT_CHAIN, ERR_R_MALLOC_FAILURE);
         goto err;

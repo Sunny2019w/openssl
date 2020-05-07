@@ -1,5 +1,5 @@
 /*
- * Copyright 2019 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 2019-2020 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the Apache License 2.0 (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -124,6 +124,9 @@ struct ossl_param_st {
  *
  * WARNING!  Using these is FRAGILE, as it assumes that the actual
  * data and its location are constant.
+ *
+ * EXTRA WARNING!  If you are not completely sure you most likely want
+ * to use the OSSL_PARAM_UTF8_STRING type.
  */
 # define OSSL_PARAM_UTF8_PTR             6
 /*-
@@ -140,6 +143,9 @@ struct ossl_param_st {
  *
  * WARNING!  Using these is FRAGILE, as it assumes that the actual
  * data and its location are constant.
+ *
+ * EXTRA WARNING!  If you are not completely sure you most likely want
+ * to use the OSSL_PARAM_OCTET_STRING type.
  */
 # define OSSL_PARAM_OCTET_PTR            7
 

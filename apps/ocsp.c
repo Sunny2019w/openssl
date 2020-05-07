@@ -1,5 +1,5 @@
 /*
- * Copyright 2001-2018 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 2001-2020 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the Apache License 2.0 (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -9,32 +9,34 @@
 
 #include <openssl/opensslconf.h>
 
-#ifdef OPENSSL_NO_OCSP
-NON_EMPTY_TRANSLATION_UNIT
-#else
-# ifdef OPENSSL_SYS_VMS
-#  define _XOPEN_SOURCE_EXTENDED/* So fd_set and friends get properly defined
-                                 * on OpenVMS */
-# endif
+#ifdef OPENSSL_SYS_VMS
+  /* So fd_set and friends get properly defined on OpenVMS */
+# define _XOPEN_SOURCE_EXTENDED
+#endif
 
-# include <stdio.h>
-# include <stdlib.h>
-# include <string.h>
-# include <time.h>
-# include <ctype.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+#include <ctype.h>
 
 /* Needs to be included before the openssl headers */
-# include "apps.h"
-# include "progs.h"
-# include "internal/sockets.h"
-# include <openssl/e_os2.h>
-# include <openssl/crypto.h>
-# include <openssl/err.h>
-# include <openssl/ssl.h>
-# include <openssl/evp.h>
-# include <openssl/bn.h>
-# include <openssl/x509v3.h>
-# include <openssl/rand.h>
+#include "apps.h"
+#include "progs.h"
+#include "internal/sockets.h"
+#include <openssl/e_os2.h>
+#include <openssl/crypto.h>
+#include <openssl/err.h>
+#include <openssl/ssl.h>
+#include <openssl/evp.h>
+#include <openssl/bn.h>
+#include <openssl/x509v3.h>
+#include <openssl/rand.h>
+
+DEFINE_STACK_OF(OCSP_CERTID)
+DEFINE_STACK_OF(CONF_VALUE)
+DEFINE_STACK_OF(X509)
+DEFINE_STACK_OF_STRING()
 
 #ifndef HAVE_FORK
 # if defined(OPENSSL_SYS_VMS) || defined(OPENSSL_SYS_WINDOWS)
@@ -50,24 +52,24 @@ NON_EMPTY_TRANSLATION_UNIT
 # define NO_FORK
 #endif
 
-# if !defined(NO_FORK) && !defined(OPENSSL_NO_SOCK) \
+#if !defined(NO_FORK) && !defined(OPENSSL_NO_SOCK) \
      && !defined(OPENSSL_NO_POSIX_IO)
-#  define OCSP_DAEMON
-#  include <sys/types.h>
-#  include <sys/wait.h>
-#  include <syslog.h>
-#  include <signal.h>
-#  define MAXERRLEN 1000 /* limit error text sent to syslog to 1000 bytes */
-# else
-#  undef LOG_INFO
-#  undef LOG_WARNING
-#  undef LOG_ERR
-#  define LOG_INFO      0
-#  define LOG_WARNING   1
-#  define LOG_ERR       2
-# endif
+# define OCSP_DAEMON
+# include <sys/types.h>
+# include <sys/wait.h>
+# include <syslog.h>
+# include <signal.h>
+# define MAXERRLEN 1000 /* limit error text sent to syslog to 1000 bytes */
+#else
+# undef LOG_INFO
+# undef LOG_WARNING
+# undef LOG_ERR
+# define LOG_INFO      0
+# define LOG_WARNING   1
+# define LOG_ERR       2
+#endif
 
-# if defined(OPENSSL_SYS_VXWORKS)
+#if defined(OPENSSL_SYS_VXWORKS)
 /* not supported */
 int setpgid(pid_t pid, pid_t pgid)
 {
@@ -80,9 +82,9 @@ pid_t fork(void)
     errno = ENOSYS;
     return (pid_t) -1;
 }
-# endif
+#endif
 /* Maximum leeway in validity period: default 5 minutes */
-# define MAX_VALIDITY_PERIOD    (5 * 60)
+#define MAX_VALIDITY_PERIOD    (5 * 60)
 
 static int add_ocsp_cert(OCSP_REQUEST **req, X509 *cert,
                          const EVP_MD *cert_id_md, X509 *issuer,
@@ -110,20 +112,13 @@ static void log_message(int level, const char *fmt, ...);
 static char *prog;
 static int multi = 0;
 
-# ifdef OCSP_DAEMON
+#ifdef OCSP_DAEMON
 static int acfd = (int) INVALID_SOCKET;
 static int index_changed(CA_DB *);
 static void spawn_loop(void);
 static int print_syslog(const char *str, size_t len, void *levPtr);
 static void socket_timeout(int signum);
-# endif
-
-# ifndef OPENSSL_NO_SOCK
-static OCSP_RESPONSE *query_responder(BIO *cbio, const char *host,
-                                      const char *path,
-                                      const STACK_OF(CONF_VALUE) *headers,
-                                      OCSP_REQUEST *req, int req_timeout);
-# endif
+#endif
 
 typedef enum OPTION_choice {
     OPT_ERR = -1, OPT_EOF = 0, OPT_HELP,
@@ -144,7 +139,7 @@ typedef enum OPTION_choice {
     OPT_RCID,
     OPT_V_ENUM,
     OPT_MD,
-    OPT_MULTI
+    OPT_MULTI, OPT_PROV_ENUM
 } OPTION_CHOICE;
 
 const OPTIONS ocsp_options[] = {
@@ -167,9 +162,9 @@ const OPTIONS ocsp_options[] = {
      "Connection timeout (in seconds) to the OCSP responder"},
     {"resp_no_certs", OPT_RESP_NO_CERTS, '-',
      "Don't include any certificates in response"},
-# ifdef OCSP_DAEMON
+#ifdef OCSP_DAEMON
     {"multi", OPT_MULTI, 'p', "run multiple responder processes"},
-# endif
+#endif
     {"no_certs", OPT_NO_CERTS, '-',
      "Don't include any certificates in signed request"},
     {"badsig", OPT_BADSIG, '-',
@@ -237,6 +232,7 @@ const OPTIONS ocsp_options[] = {
     {"status_age", OPT_STATUS_AGE, 'p', "Maximum status age in seconds"},
 
     OPT_V_OPTIONS,
+    OPT_PROV_OPTIONS,
     {NULL}
 };
 
@@ -315,7 +311,8 @@ int ocsp_main(int argc, char **argv)
             OPENSSL_free(tport);
             OPENSSL_free(tpath);
             thost = tport = tpath = NULL;
-            if (!OCSP_parse_url(opt_arg(), &host, &port, &path, &use_ssl)) {
+            if (!OSSL_HTTP_parse_url(opt_arg(),
+                                     &host, &port, &path, &use_ssl)) {
                 BIO_printf(bio_err, "%s Error parsing URL\n", prog);
                 goto end;
             }
@@ -451,7 +448,8 @@ int ocsp_main(int argc, char **argv)
                 if ((issuers = sk_X509_new_null()) == NULL)
                     goto end;
             }
-            sk_X509_push(issuers, issuer);
+            if (!sk_X509_push(issuers, issuer))
+                goto end;
             break;
         case OPT_CERT:
             X509_free(cert);
@@ -542,9 +540,13 @@ int ocsp_main(int argc, char **argv)
             trailing_md = 1;
             break;
         case OPT_MULTI:
-# ifdef OCSP_DAEMON
+#ifdef OCSP_DAEMON
             multi = atoi(opt_arg());
-# endif
+#endif
+            break;
+        case OPT_PROV_CASES:
+            if (!opt_provider(o))
+                goto end;
             break;
         }
     }
@@ -628,7 +630,7 @@ int ocsp_main(int argc, char **argv)
         }
     }
 
-# ifdef OCSP_DAEMON
+#ifdef OCSP_DAEMON
     if (multi && acbio != NULL)
         spawn_loop();
     if (acbio != NULL && req_timeout > 0)
@@ -641,7 +643,7 @@ int ocsp_main(int argc, char **argv)
 redo_accept:
 
     if (acbio != NULL) {
-# ifdef OCSP_DAEMON
+#ifdef OCSP_DAEMON
         if (index_changed(rdb)) {
             CA_DB *newrdb = load_index(ridx_filename, NULL);
 
@@ -654,7 +656,7 @@ redo_accept:
                             ridx_filename);
             }
         }
-# endif
+#endif
 
         req = NULL;
         if (!do_responder(&req, &cbio, acbio, req_timeout))
@@ -724,16 +726,16 @@ redo_accept:
         if (cbio != NULL)
             send_ocsp_response(cbio, resp);
     } else if (host != NULL) {
-# ifndef OPENSSL_NO_SOCK
+#ifndef OPENSSL_NO_SOCK
         resp = process_responder(req, host, path,
                                  port, use_ssl, headers, req_timeout);
         if (resp == NULL)
             goto end;
-# else
+#else
         BIO_printf(bio_err,
                    "Error creating connect BIO - sockets not supported.\n");
         goto end;
-# endif
+#endif
     } else if (respin != NULL) {
         derbio = bio_open_default(respin, 'r', FORMAT_ASN1);
         if (derbio == NULL)
@@ -877,7 +879,7 @@ log_message(int level, const char *fmt, ...)
     va_list ap;
 
     va_start(ap, fmt);
-# ifdef OCSP_DAEMON
+#ifdef OCSP_DAEMON
     if (multi) {
         char buf[1024];
         if (vsnprintf(buf, sizeof(buf), fmt, ap) > 0) {
@@ -886,7 +888,7 @@ log_message(int level, const char *fmt, ...)
         if (level >= LOG_ERR)
             ERR_print_errors_cb(print_syslog, &level);
     }
-# endif
+#endif
     if (!multi) {
         BIO_printf(bio_err, "%s: ", prog);
         BIO_vprintf(bio_err, fmt, ap);
@@ -895,7 +897,7 @@ log_message(int level, const char *fmt, ...)
     va_end(ap);
 }
 
-# ifdef OCSP_DAEMON
+#ifdef OCSP_DAEMON
 
 static int print_syslog(const char *str, size_t len, void *levPtr)
 {
@@ -1048,7 +1050,7 @@ static void spawn_loop(void)
     syslog(LOG_INFO, "terminating on signal: %d", termsig);
     killall(0, kidpids);
 }
-# endif
+#endif
 
 static int add_ocsp_cert(OCSP_REQUEST **req, X509 *cert,
                          const EVP_MD *cert_id_md, X509 *issuer,
@@ -1081,7 +1083,7 @@ static int add_ocsp_serial(OCSP_REQUEST **req, char *serial,
                            STACK_OF(OCSP_CERTID) *ids)
 {
     OCSP_CERTID *id;
-    X509_NAME *iname;
+    const X509_NAME *iname;
     ASN1_BIT_STRING *ikey;
     ASN1_INTEGER *sno;
 
@@ -1338,11 +1340,11 @@ static char **lookup_serial(CA_DB *db, ASN1_INTEGER *ser)
 
 static BIO *init_responder(const char *port)
 {
-# ifdef OPENSSL_NO_SOCK
+#ifdef OPENSSL_NO_SOCK
     BIO_printf(bio_err,
                "Error setting up accept BIO - sockets not supported.\n");
     return NULL;
-# else
+#else
     BIO *acbio = NULL, *bufbio = NULL;
 
     bufbio = BIO_new(BIO_f_buffer());
@@ -1369,10 +1371,10 @@ static BIO *init_responder(const char *port)
     BIO_free_all(acbio);
     BIO_free(bufbio);
     return NULL;
-# endif
+#endif
 }
 
-# ifndef OPENSSL_NO_SOCK
+#ifndef OPENSSL_NO_SOCK
 /*
  * Decode %xx URL-decoding in-place. Ignores mal-formed sequences.
  */
@@ -1396,22 +1398,22 @@ static int urldecode(char *p)
     *out = '\0';
     return (int)(out - save);
 }
-# endif
+#endif
 
-# ifdef OCSP_DAEMON
+#ifdef OCSP_DAEMON
 static void socket_timeout(int signum)
 {
     if (acfd != (int)INVALID_SOCKET)
         (void)shutdown(acfd, SHUT_RD);
 }
-# endif
+#endif
 
 static int do_responder(OCSP_REQUEST **preq, BIO **pcbio, BIO *acbio,
                         int timeout)
 {
-# ifdef OPENSSL_NO_SOCK
+#ifdef OPENSSL_NO_SOCK
     return 0;
-# else
+#else
     int len;
     OCSP_REQUEST *req = NULL;
     char inbuf[2048], reqbuf[2048];
@@ -1429,12 +1431,12 @@ static int do_responder(OCSP_REQUEST **preq, BIO **pcbio, BIO *acbio,
     *pcbio = cbio;
     client = BIO_get_peer_name(cbio);
 
-#  ifdef OCSP_DAEMON
+# ifdef OCSP_DAEMON
     if (timeout > 0) {
         (void) BIO_get_fd(cbio, &acfd);
         alarm(timeout);
     }
-#  endif
+# endif
 
     /* Read the request line. */
     len = BIO_gets(cbio, reqbuf, sizeof(reqbuf));
@@ -1497,11 +1499,11 @@ static int do_responder(OCSP_REQUEST **preq, BIO **pcbio, BIO *acbio,
             break;
     }
 
-#  ifdef OCSP_DAEMON
+# ifdef OCSP_DAEMON
     /* Clear alarm before we close the client socket */
     alarm(0);
     timeout = 0;
-#  endif
+# endif
 
     /* Try to read OCSP request */
     if (getbio != NULL) {
@@ -1517,13 +1519,13 @@ static int do_responder(OCSP_REQUEST **preq, BIO **pcbio, BIO *acbio,
     *preq = req;
 
 out:
-#  ifdef OCSP_DAEMON
+# ifdef OCSP_DAEMON
     if (timeout > 0)
         alarm(0);
     acfd = (int)INVALID_SOCKET;
-#  endif
-    return 1;
 # endif
+    return 1;
+#endif
 }
 
 static int send_ocsp_response(BIO *cbio, OCSP_RESPONSE *resp)
@@ -1539,137 +1541,36 @@ static int send_ocsp_response(BIO *cbio, OCSP_RESPONSE *resp)
     return 1;
 }
 
-# ifndef OPENSSL_NO_SOCK
-static OCSP_RESPONSE *query_responder(BIO *cbio, const char *host,
-                                      const char *path,
-                                      const STACK_OF(CONF_VALUE) *headers,
-                                      OCSP_REQUEST *req, int req_timeout)
-{
-    int fd;
-    int rv;
-    int i;
-    int add_host = 1;
-    OCSP_REQ_CTX *ctx = NULL;
-    OCSP_RESPONSE *rsp = NULL;
-    fd_set confds;
-    struct timeval tv;
-
-    if (req_timeout != -1)
-        BIO_set_nbio(cbio, 1);
-
-    rv = BIO_do_connect(cbio);
-
-    if ((rv <= 0) && ((req_timeout == -1) || !BIO_should_retry(cbio))) {
-        BIO_puts(bio_err, "Error connecting BIO\n");
-        return NULL;
-    }
-
-    if (BIO_get_fd(cbio, &fd) < 0) {
-        BIO_puts(bio_err, "Can't get connection fd\n");
-        goto err;
-    }
-
-    if (req_timeout != -1 && rv <= 0) {
-        FD_ZERO(&confds);
-        openssl_fdset(fd, &confds);
-        tv.tv_usec = 0;
-        tv.tv_sec = req_timeout;
-        rv = select(fd + 1, NULL, (void *)&confds, NULL, &tv);
-        if (rv == 0) {
-            BIO_puts(bio_err, "Timeout on connect\n");
-            return NULL;
-        }
-    }
-
-    ctx = OCSP_sendreq_new(cbio, path, NULL, -1);
-    if (ctx == NULL)
-        return NULL;
-
-    for (i = 0; i < sk_CONF_VALUE_num(headers); i++) {
-        CONF_VALUE *hdr = sk_CONF_VALUE_value(headers, i);
-        if (add_host == 1 && strcasecmp("host", hdr->name) == 0)
-            add_host = 0;
-        if (!OCSP_REQ_CTX_add1_header(ctx, hdr->name, hdr->value))
-            goto err;
-    }
-
-    if (add_host == 1 && OCSP_REQ_CTX_add1_header(ctx, "Host", host) == 0)
-        goto err;
-
-    if (!OCSP_REQ_CTX_set1_req(ctx, req))
-        goto err;
-
-    for (;;) {
-        rv = OCSP_sendreq_nbio(&rsp, ctx);
-        if (rv != -1)
-            break;
-        if (req_timeout == -1)
-            continue;
-        FD_ZERO(&confds);
-        openssl_fdset(fd, &confds);
-        tv.tv_usec = 0;
-        tv.tv_sec = req_timeout;
-        if (BIO_should_read(cbio)) {
-            rv = select(fd + 1, (void *)&confds, NULL, NULL, &tv);
-        } else if (BIO_should_write(cbio)) {
-            rv = select(fd + 1, NULL, (void *)&confds, NULL, &tv);
-        } else {
-            BIO_puts(bio_err, "Unexpected retry condition\n");
-            goto err;
-        }
-        if (rv == 0) {
-            BIO_puts(bio_err, "Timeout on request\n");
-            break;
-        }
-        if (rv == -1) {
-            BIO_puts(bio_err, "Select error\n");
-            break;
-        }
-
-    }
- err:
-    OCSP_REQ_CTX_free(ctx);
-
-    return rsp;
-}
-
+#ifndef OPENSSL_NO_SOCK
 OCSP_RESPONSE *process_responder(OCSP_REQUEST *req,
                                  const char *host, const char *path,
                                  const char *port, int use_ssl,
                                  STACK_OF(CONF_VALUE) *headers,
                                  int req_timeout)
 {
-    BIO *cbio = NULL;
     SSL_CTX *ctx = NULL;
     OCSP_RESPONSE *resp = NULL;
 
-    cbio = BIO_new_connect(host);
-    if (cbio == NULL) {
-        BIO_printf(bio_err, "Error creating connect BIO\n");
-        goto end;
-    }
-    if (port != NULL)
-        BIO_set_conn_port(cbio, port);
     if (use_ssl == 1) {
-        BIO *sbio;
         ctx = SSL_CTX_new(TLS_client_method());
         if (ctx == NULL) {
             BIO_printf(bio_err, "Error creating SSL context.\n");
             goto end;
         }
         SSL_CTX_set_mode(ctx, SSL_MODE_AUTO_RETRY);
-        sbio = BIO_new_ssl(ctx, 1);
-        cbio = BIO_push(sbio, cbio);
     }
 
-    resp = query_responder(cbio, host, path, headers, req, req_timeout);
+    resp = (OCSP_RESPONSE *)
+        app_http_post_asn1(host, port, path, NULL, NULL /* no proxy used */,
+                           ctx, headers, "application/ocsp-request",
+                           (ASN1_VALUE *)req, ASN1_ITEM_rptr(OCSP_REQUEST),
+                           req_timeout, ASN1_ITEM_rptr(OCSP_RESPONSE));
+
     if (resp == NULL)
         BIO_printf(bio_err, "Error querying OCSP responder\n");
+
  end:
-    BIO_free_all(cbio);
     SSL_CTX_free(ctx);
     return resp;
 }
-# endif
-
 #endif

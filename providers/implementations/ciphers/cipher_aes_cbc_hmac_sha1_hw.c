@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2019 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 2011-2020 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the Apache License 2.0 (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -8,7 +8,7 @@
  */
 
 /*
- * AES low level APIs are deprecated for public use, but still ok for internal
+ * All low level APIs are deprecated for public use, but still ok for internal
  * use where we're using them to implement the higher level EVP interface, as is
  * the case here.
  */
@@ -16,14 +16,19 @@
 
 #include "cipher_aes_cbc_hmac_sha.h"
 
-#ifndef AES_CBC_HMAC_SHA_CAPABLE
+#if !defined(AES_CBC_HMAC_SHA_CAPABLE) || !defined(AESNI_CAPABLE)
 int cipher_capable_aes_cbc_hmac_sha1(void)
 {
     return 0;
 }
+
+const PROV_CIPHER_HW_AES_HMAC_SHA *PROV_CIPHER_HW_aes_cbc_hmac_sha1(void)
+{
+    return NULL;
+}
 #else
 
-# include "crypto/rand.h"
+# include <openssl/rand.h>
 # include "crypto/evp.h"
 # include "internal/constant_time.h"
 
@@ -135,7 +140,7 @@ static size_t tls1_multi_block_encrypt(void *vctx,
 #  endif
 
     /* ask for IVs in bulk */
-    if (rand_bytes_ex(ctx->base.libctx, (IVs = blocks[0].c), 16 * x4) <= 0)
+    if (RAND_bytes_ex(ctx->base.libctx, (IVs = blocks[0].c), 16 * x4) <= 0)
         return 0;
 
     mctx = (SHA1_MB_CTX *) (storage + 32 - ((size_t)storage % 32)); /* align */
@@ -765,7 +770,7 @@ static int aesni_cbc_hmac_sha1_tls1_multiblock_encrypt(
                                          param->interleave / 4);
 }
 
-#endif /* OPENSSL_NO_MULTIBLOCK */
+# endif /* OPENSSL_NO_MULTIBLOCK */
 
 static const PROV_CIPHER_HW_AES_HMAC_SHA cipher_hw_aes_hmac_sha1 = {
     {
@@ -786,4 +791,4 @@ const PROV_CIPHER_HW_AES_HMAC_SHA *PROV_CIPHER_HW_aes_cbc_hmac_sha1(void)
     return &cipher_hw_aes_hmac_sha1;
 }
 
-#endif /* AES_CBC_HMAC_SHA_CAPABLE */
+#endif /* !defined(AES_CBC_HMAC_SHA_CAPABLE) || !defined(AESNI_CAPABLE) */

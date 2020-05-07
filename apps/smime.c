@@ -1,5 +1,5 @@
 /*
- * Copyright 1999-2018 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 1999-2020 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the Apache License 2.0 (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -18,6 +18,9 @@
 #include <openssl/err.h>
 #include <openssl/x509_vfy.h>
 #include <openssl/x509v3.h>
+
+DEFINE_STACK_OF(X509)
+DEFINE_STACK_OF_STRING()
 
 static int save_certs(char *signerfile, STACK_OF(X509) *signers);
 static int smime_cb(int ok, X509_STORE_CTX *ctx);
@@ -42,7 +45,7 @@ typedef enum OPTION_choice {
     OPT_TO, OPT_FROM, OPT_SUBJECT, OPT_SIGNER, OPT_RECIP, OPT_MD,
     OPT_CIPHER, OPT_INKEY, OPT_KEYFORM, OPT_CERTFILE, OPT_CAFILE,
     OPT_CAPATH, OPT_CASTORE, OPT_NOCAFILE, OPT_NOCAPATH, OPT_NOCASTORE,
-    OPT_R_ENUM,
+    OPT_R_ENUM, OPT_PROV_ENUM,
     OPT_V_ENUM,
     OPT_IN, OPT_INFORM, OPT_OUT,
     OPT_OUTFORM, OPT_CONTENT
@@ -121,6 +124,7 @@ const OPTIONS smime_options[] = {
 
     OPT_R_OPTIONS,
     OPT_V_OPTIONS,
+    OPT_PROV_OPTIONS,
 
     OPT_PARAMETERS(),
     {"cert", 0, 0, "Recipient certs, used when encrypting"},
@@ -242,6 +246,10 @@ int smime_main(int argc, char **argv)
             break;
         case OPT_R_CASES:
             if (!opt_rand(o))
+                goto end;
+            break;
+        case OPT_PROV_CASES:
+            if (!opt_provider(o))
                 goto end;
             break;
         case OPT_ENGINE:

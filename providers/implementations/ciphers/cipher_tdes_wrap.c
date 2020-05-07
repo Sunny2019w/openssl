@@ -1,5 +1,5 @@
 /*
- * Copyright 1995-2019 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 1995-2020 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the Apache License 2.0 (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -7,10 +7,16 @@
  * https://www.openssl.org/source/license.html
  */
 
+/*
+ * DES and SHA-1 low level APIs are deprecated for public use, but still ok for
+ * internal use.
+ */
+#include "internal/deprecated.h"
+
 #include <openssl/sha.h>
+#include <openssl/rand.h>
 #include "cipher_tdes_default.h"
 #include "crypto/evp.h"
-#include "crypto/rand.h"
 #include "prov/implementations.h"
 #include "prov/providercommonerr.h"
 
@@ -92,7 +98,7 @@ static int des_ede3_wrap(PROV_CIPHER_CTX *ctx, unsigned char *out,
     memcpy(out + inl + ivlen, sha1tmp, icvlen);
     OPENSSL_cleanse(sha1tmp, SHA_DIGEST_LENGTH);
     /* Generate random IV */
-    if (rand_bytes_ex(ctx->libctx, ctx->iv, ivlen) <= 0)
+    if (RAND_bytes_ex(ctx->libctx, ctx->iv, ivlen) <= 0)
         return 0;
     memcpy(out, ctx->iv, ivlen);
     /* Encrypt everything after IV in place */

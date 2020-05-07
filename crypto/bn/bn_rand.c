@@ -1,5 +1,5 @@
 /*
- * Copyright 1995-2018 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 1995-2020 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the Apache License 2.0 (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -47,8 +47,8 @@ static int bnrand(BNRAND_FLAG flag, BIGNUM *rnd, int bits, int top, int bottom,
     }
 
     /* make a random number and set the top and bottom bits */
-    b = flag == NORMAL ? rand_bytes_ex(libctx, buf, bytes)
-                       : rand_priv_bytes_ex(libctx, buf, bytes);
+    b = flag == NORMAL ? RAND_bytes_ex(libctx, buf, bytes)
+                       : RAND_priv_bytes_ex(libctx, buf, bytes);
     if (b <= 0)
         goto err;
 
@@ -60,7 +60,7 @@ static int bnrand(BNRAND_FLAG flag, BIGNUM *rnd, int bits, int top, int bottom,
         unsigned char c;
 
         for (i = 0; i < bytes; i++) {
-            if (rand_bytes_ex(libctx, &c, 1) <= 0)
+            if (RAND_bytes_ex(libctx, &c, 1) <= 0)
                 goto err;
             if (c >= 128 && i > 0)
                 buf[i] = buf[i - 1];
@@ -103,7 +103,7 @@ int BN_rand_ex(BIGNUM *rnd, int bits, int top, int bottom, BN_CTX *ctx)
 {
     return bnrand(NORMAL, rnd, bits, top, bottom, ctx);
 }
-#ifndef FIPS_MODE
+#ifndef FIPS_MODULE
 int BN_rand(BIGNUM *rnd, int bits, int top, int bottom)
 {
     return bnrand(NORMAL, rnd, bits, top, bottom, NULL);
@@ -120,7 +120,7 @@ int BN_priv_rand_ex(BIGNUM *rnd, int bits, int top, int bottom, BN_CTX *ctx)
     return bnrand(PRIVATE, rnd, bits, top, bottom, ctx);
 }
 
-#ifndef FIPS_MODE
+#ifndef FIPS_MODULE
 int BN_priv_rand(BIGNUM *rnd, int bits, int top, int bottom)
 {
     return bnrand(PRIVATE, rnd, bits, top, bottom, NULL);
@@ -199,7 +199,7 @@ int BN_rand_range_ex(BIGNUM *r, const BIGNUM *range, BN_CTX *ctx)
     return bnrand_range(NORMAL, r, range, ctx);
 }
 
-#ifndef FIPS_MODE
+#ifndef FIPS_MODULE
 int BN_rand_range(BIGNUM *r, const BIGNUM *range)
 {
     return bnrand_range(NORMAL, r, range, NULL);
@@ -211,7 +211,7 @@ int BN_priv_rand_range_ex(BIGNUM *r, const BIGNUM *range, BN_CTX *ctx)
     return bnrand_range(PRIVATE, r, range, ctx);
 }
 
-#ifndef FIPS_MODE
+#ifndef FIPS_MODULE
 int BN_priv_rand_range(BIGNUM *r, const BIGNUM *range)
 {
     return bnrand_range(PRIVATE, r, range, NULL);
@@ -280,7 +280,7 @@ int BN_generate_dsa_nonce(BIGNUM *out, const BIGNUM *range,
         goto err;
     }
     for (done = 0; done < num_k_bytes;) {
-        if (!rand_priv_bytes_ex(libctx, random_bytes, sizeof(random_bytes)))
+        if (!RAND_priv_bytes_ex(libctx, random_bytes, sizeof(random_bytes)))
             goto err;
 
         if (!EVP_DigestInit_ex(mdctx, md, NULL)

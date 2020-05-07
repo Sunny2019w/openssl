@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2018 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 2000-2020 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the Apache License 2.0 (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -7,26 +7,26 @@
  * https://www.openssl.org/source/license.html
  */
 
+/* We need to use the deprecated RSA low level calls */
+#define OPENSSL_SUPPRESS_DEPRECATED
+
 #include <openssl/opensslconf.h>
-#ifdef OPENSSL_NO_RSA
-NON_EMPTY_TRANSLATION_UNIT
-#else
 
-# include "apps.h"
-# include "progs.h"
-# include <string.h>
-# include <openssl/err.h>
-# include <openssl/pem.h>
-# include <openssl/rsa.h>
+#include "apps.h"
+#include "progs.h"
+#include <string.h>
+#include <openssl/err.h>
+#include <openssl/pem.h>
+#include <openssl/rsa.h>
 
-# define RSA_SIGN        1
-# define RSA_VERIFY      2
-# define RSA_ENCRYPT     3
-# define RSA_DECRYPT     4
+#define RSA_SIGN        1
+#define RSA_VERIFY      2
+#define RSA_ENCRYPT     3
+#define RSA_DECRYPT     4
 
-# define KEY_PRIVKEY     1
-# define KEY_PUBKEY      2
-# define KEY_CERT        3
+#define KEY_PRIVKEY     1
+#define KEY_PUBKEY      2
+#define KEY_CERT        3
 
 typedef enum OPTION_choice {
     OPT_ERR = -1, OPT_EOF = 0, OPT_HELP,
@@ -34,7 +34,7 @@ typedef enum OPTION_choice {
     OPT_RSA_RAW, OPT_OAEP, OPT_SSL, OPT_PKCS, OPT_X931,
     OPT_SIGN, OPT_VERIFY, OPT_REV, OPT_ENCRYPT, OPT_DECRYPT,
     OPT_PUBIN, OPT_CERTIN, OPT_INKEY, OPT_PASSIN, OPT_KEYFORM,
-    OPT_R_ENUM
+    OPT_R_ENUM, OPT_PROV_ENUM
 } OPTION_CHOICE;
 
 const OPTIONS rsautl_options[] = {
@@ -44,9 +44,9 @@ const OPTIONS rsautl_options[] = {
     {"verify", OPT_VERIFY, '-', "Verify with public key"},
     {"encrypt", OPT_ENCRYPT, '-', "Encrypt with public key"},
     {"decrypt", OPT_DECRYPT, '-', "Decrypt with private key"},
-# ifndef OPENSSL_NO_ENGINE
+#ifndef OPENSSL_NO_ENGINE
     {"engine", OPT_ENGINE, 's', "Use engine, possibly a hardware device"},
-# endif
+#endif
 
     OPT_SECTION("Input"),
     {"in", OPT_IN, '<', "Input file"},
@@ -69,6 +69,7 @@ const OPTIONS rsautl_options[] = {
     {"hexdump", OPT_HEXDUMP, '-', "Hex dump output"},
 
     OPT_R_OPTIONS,
+    OPT_PROV_OPTIONS,
     {NULL}
 };
 
@@ -164,6 +165,10 @@ int rsautl_main(int argc, char **argv)
             break;
         case OPT_R_CASES:
             if (!opt_rand(o))
+                goto end;
+            break;
+        case OPT_PROV_CASES:
+            if (!opt_provider(o))
                 goto end;
             break;
         }
@@ -285,4 +290,3 @@ int rsautl_main(int argc, char **argv)
     OPENSSL_free(passin);
     return ret;
 }
-#endif

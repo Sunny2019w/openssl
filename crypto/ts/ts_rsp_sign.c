@@ -17,6 +17,12 @@
 #include "ts_local.h"
 #include "crypto/ess.h"
 
+DEFINE_STACK_OF(X509)
+DEFINE_STACK_OF(X509_EXTENSION)
+DEFINE_STACK_OF(ASN1_UTF8STRING)
+DEFINE_STACK_OF(ASN1_OBJECT)
+DEFINE_STACK_OF_CONST(EVP_MD)
+
 static ASN1_INTEGER *def_serial_cb(struct TS_resp_ctx *, void *);
 static int def_time_cb(struct TS_resp_ctx *, void *, long *sec, long *usec);
 static int def_extension_cb(struct TS_resp_ctx *, X509_EXTENSION *, void *);
@@ -51,6 +57,7 @@ static ASN1_INTEGER *def_serial_cb(struct TS_resp_ctx *ctx, void *data)
     TSerr(TS_F_DEF_SERIAL_CB, ERR_R_MALLOC_FAILURE);
     TS_RESP_CTX_set_status_info(ctx, TS_STATUS_REJECTION,
                                 "Error during serial number generation.");
+    ASN1_INTEGER_free(serial);
     return NULL;
 }
 

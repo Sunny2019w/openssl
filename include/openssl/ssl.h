@@ -1,5 +1,5 @@
 /*
- * Copyright 1995-2018 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 1995-2020 The OpenSSL Project Authors. All Rights Reserved.
  * Copyright (c) 2002, Oracle and/or its affiliates. All rights reserved
  * Copyright 2005 Nokia. All rights reserved.
  *
@@ -136,6 +136,7 @@ extern "C" {
 # define SSL_TXT_ARIA_GCM        "ARIAGCM"
 # define SSL_TXT_ARIA128         "ARIA128"
 # define SSL_TXT_ARIA256         "ARIA256"
+# define SSL_TXT_GOST2012_GOST8912_GOST8912 "GOST2012-GOST8912-GOST8912"
 
 # define SSL_TXT_MD5             "MD5"
 # define SSL_TXT_SHA1            "SHA1"
@@ -237,8 +238,8 @@ typedef struct srtp_protection_profile_st {
     const char *name;
     unsigned long id;
 } SRTP_PROTECTION_PROFILE;
+DEFINE_OR_DECLARE_STACK_OF(SRTP_PROTECTION_PROFILE)
 
-DEFINE_STACK_OF(SRTP_PROTECTION_PROFILE)
 
 typedef int (*tls_session_ticket_ext_cb_fn)(SSL *s, const unsigned char *data,
                                             int len, void *arg);
@@ -978,8 +979,8 @@ extern "C" {
  * These need to be after the above set of includes due to a compiler bug
  * in VisualStudio 2015
  */
-DEFINE_STACK_OF_CONST(SSL_CIPHER)
-DEFINE_STACK_OF(SSL_COMP)
+DEFINE_OR_DECLARE_STACK_OF(SSL_CIPHER)
+DEFINE_OR_DECLARE_STACK_OF(SSL_COMP)
 
 /* compatibility */
 # define SSL_set_app_data(s,arg)         (SSL_set_ex_data(s,0,(char *)(arg)))
@@ -1269,7 +1270,9 @@ DECLARE_PEM_rw(SSL_SESSION, SSL_SESSION)
 # define SSL_CTRL_SET_TLSEXT_STATUS_REQ_IDS      69
 # define SSL_CTRL_GET_TLSEXT_STATUS_REQ_OCSP_RESP        70
 # define SSL_CTRL_SET_TLSEXT_STATUS_REQ_OCSP_RESP        71
-# define SSL_CTRL_SET_TLSEXT_TICKET_KEY_CB       72
+# ifndef OPENSSL_NO_DEPRECATED_3_0
+#  define SSL_CTRL_SET_TLSEXT_TICKET_KEY_CB      72
+# endif
 # define SSL_CTRL_SET_TLS_EXT_SRP_USERNAME_CB    75
 # define SSL_CTRL_SET_SRP_VERIFY_PARAM_CB                76
 # define SSL_CTRL_SET_SRP_GIVE_CLIENT_PWD_CB             77
@@ -1414,7 +1417,7 @@ DECLARE_PEM_rw(SSL_SESSION, SSL_SESSION)
 # define SSL_get1_groups(s, glist) \
         SSL_ctrl(s,SSL_CTRL_GET_GROUPS,0,(int*)(glist))
 # define SSL_CTX_set1_groups(ctx, glist, glistlen) \
-        SSL_CTX_ctrl(ctx,SSL_CTRL_SET_GROUPS,glistlen,(char *)(glist))
+        SSL_CTX_ctrl(ctx,SSL_CTRL_SET_GROUPS,glistlen,(int *)(glist))
 # define SSL_CTX_set1_groups_list(ctx, s) \
         SSL_CTX_ctrl(ctx,SSL_CTRL_SET_GROUPS_LIST,0,(char *)(s))
 # define SSL_set1_groups(s, glist, glistlen) \
@@ -1524,6 +1527,8 @@ void BIO_ssl_shutdown(BIO *ssl_bio);
 
 __owur int SSL_CTX_set_cipher_list(SSL_CTX *, const char *str);
 __owur SSL_CTX *SSL_CTX_new(const SSL_METHOD *meth);
+__owur SSL_CTX *SSL_CTX_new_with_libctx(OPENSSL_CTX *libctx, const char *propq,
+                                        const SSL_METHOD *meth);
 int SSL_CTX_up_ref(SSL_CTX *ctx);
 void SSL_CTX_free(SSL_CTX *);
 __owur long SSL_CTX_set_timeout(SSL_CTX *ctx, long t);
@@ -1954,6 +1959,7 @@ int SSL_get_key_update_type(const SSL *s);
 int SSL_renegotiate(SSL *s);
 int SSL_renegotiate_abbreviated(SSL *s);
 __owur int SSL_renegotiate_pending(const SSL *s);
+int SSL_new_session_ticket(SSL *s);
 int SSL_shutdown(SSL *s);
 __owur int SSL_verify_client_post_handshake(SSL *s);
 void SSL_CTX_set_post_handshake_auth(SSL_CTX *ctx, int val);

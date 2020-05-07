@@ -1,5 +1,5 @@
 /*
- * Copyright 1995-2018 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 1995-2020 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the Apache License 2.0 (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -47,6 +47,13 @@ RAND_METHOD *RAND_OpenSSL(void);
 # endif
 int RAND_bytes(unsigned char *buf, int num);
 int RAND_priv_bytes(unsigned char *buf, int num);
+
+/* Equivalent of RAND_priv_bytes() but additionally taking an OPENSSL_CTX */
+int RAND_priv_bytes_ex(OPENSSL_CTX *ctx, unsigned char *buf, int num);
+
+/* Equivalent of RAND_bytes() but additionally taking an OPENSSL_CTX */
+int RAND_bytes_ex(OPENSSL_CTX *ctx, unsigned char *buf, int num);
+
 DEPRECATEDIN_1_1_0(int RAND_pseudo_bytes(unsigned char *buf, int num))
 
 void RAND_seed(const void *buf, int num);

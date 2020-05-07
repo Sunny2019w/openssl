@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-2018 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 2016-2020 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the Apache License 2.0 (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -185,11 +185,5 @@ void rand_pool_cleanup(void);
  * Control the random pool use of open file descriptors.
  */
 void rand_pool_keep_random_devices_open(int keep);
-
-/* Equivalent of RAND_priv_bytes() but additionally taking an OPENSSL_CTX */
-int rand_priv_bytes_ex(OPENSSL_CTX *ctx, unsigned char *buf, int num);
-
-/* Equivalent of RAND_bytes() but additionally taking an OPENSSL_CTX */
-int rand_bytes_ex(OPENSSL_CTX *ctx, unsigned char *buf, int num);
 
 #endif

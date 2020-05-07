@@ -1,5 +1,5 @@
 /*
- * Copyright 1995-2019 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 1995-2020 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the Apache License 2.0 (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -46,6 +46,18 @@ char *default_config_file = NULL;
 BIO *bio_in = NULL;
 BIO *bio_out = NULL;
 BIO *bio_err = NULL;
+
+static void warn_deprecated(const FUNCTION *fp)
+{
+    if (fp->deprecated_version != NULL)
+        BIO_printf(bio_err, "The command %s was deprecated in version %s.",
+                   fp->name, fp->deprecated_version);
+    else
+        BIO_printf(bio_err, "The command %s is deprecated.", fp->name);
+    if (strcmp(fp->deprecated_alternative, DEPRECATED_NO_ALTERNATIVE) != 0)
+        BIO_printf(bio_err, " Use '%s' instead.", fp->deprecated_alternative);
+    BIO_printf(bio_err, "\n");
+}
 
 static int apps_startup(void)
 {
@@ -277,6 +289,8 @@ int main(int argc, char *argv[])
     fp = lh_FUNCTION_retrieve(prog, &f);
     if (fp != NULL) {
         argv[0] = pname;
+        if (fp->deprecated_alternative != NULL)
+            warn_deprecated(fp);
         ret = fp->func(argc, argv);
         goto end;
     }
@@ -357,6 +371,7 @@ int main(int argc, char *argv[])
     }
     ret = 1;
  end:
+    app_providers_cleanup();
     OPENSSL_free(default_config_file);
     lh_FUNCTION_free(prog);
     OPENSSL_free(arg.argv);
@@ -470,6 +485,8 @@ static int do_cmd(LHASH_OF(FUNCTION) *prog, int argc, char *argv[])
         }
     }
     if (fp != NULL) {
+        if (fp->deprecated_alternative != NULL)
+            warn_deprecated(fp);
         return fp->func(argc, argv);
     }
     if ((strncmp(argv[0], "no-", 3)) == 0) {
