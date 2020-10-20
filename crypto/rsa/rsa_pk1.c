@@ -124,10 +124,9 @@ int RSA_padding_check_PKCS1_type_1(unsigned char *to, int tlen,
     return j;
 }
 
-int rsa_padding_add_PKCS1_type_2_with_libctx(OPENSSL_CTX *libctx,
-                                             unsigned char *to, int tlen,
-                                             const unsigned char *from,
-                                             int flen)
+int ossl_rsa_padding_add_PKCS1_type_2_ex(OSSL_LIB_CTX *libctx, unsigned char *to,
+                                         int tlen, const unsigned char *from,
+                                         int flen)
 {
     int i, j;
     unsigned char *p;
@@ -165,7 +164,7 @@ int rsa_padding_add_PKCS1_type_2_with_libctx(OPENSSL_CTX *libctx,
 int RSA_padding_add_PKCS1_type_2(unsigned char *to, int tlen,
                                  const unsigned char *from, int flen)
 {
-    return rsa_padding_add_PKCS1_type_2_with_libctx(NULL, to, tlen, from, flen);
+    return ossl_rsa_padding_add_PKCS1_type_2_ex(NULL, to, tlen, from, flen);
 }
 
 int RSA_padding_check_PKCS1_type_2(unsigned char *to, int tlen,
@@ -279,7 +278,7 @@ int RSA_padding_check_PKCS1_type_2(unsigned char *to, int tlen,
 }
 
 /*
- * rsa_padding_check_PKCS1_type_2_TLS() checks and removes the PKCS1 type 2
+ * ossl_rsa_padding_check_PKCS1_type_2_TLS() checks and removes the PKCS1 type 2
  * padding from a decrypted RSA message in a TLS signature. The result is stored
  * in the buffer pointed to by |to| which should be |tlen| bytes long. |tlen|
  * must be at least SSL_MAX_MASTER_KEY_LENGTH. The original decrypted message
@@ -299,10 +298,11 @@ int RSA_padding_check_PKCS1_type_2(unsigned char *to, int tlen,
  * decrypted data will be randomly generated (as per
  * https://tools.ietf.org/html/rfc5246#section-7.4.7.1).
  */
-int rsa_padding_check_PKCS1_type_2_TLS(OPENSSL_CTX *libctx, unsigned char *to,
-                                       size_t tlen, const unsigned char *from,
-                                       size_t flen, int client_version,
-                                       int alt_version)
+int ossl_rsa_padding_check_PKCS1_type_2_TLS(OSSL_LIB_CTX *libctx,
+                                            unsigned char *to, size_t tlen,
+                                            const unsigned char *from,
+                                            size_t flen, int client_version,
+                                            int alt_version)
 {
     unsigned int i, good, version_good;
     unsigned char rand_premaster_secret[SSL_MAX_MASTER_KEY_LENGTH];

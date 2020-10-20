@@ -25,10 +25,6 @@
 # define SRP_RANDOM_SALT_LEN 20
 # define MAX_LEN 2500
 
-DEFINE_STACK_OF(SRP_user_pwd)
-DEFINE_STACK_OF(SRP_gN_cache)
-DEFINE_STACK_OF(SRP_gN)
-
 /*
  * Note that SRP uses its own variant of base 64 encoding. A different base64
  * alphabet is used and no padding '=' characters are added. Instead we pad to
@@ -600,7 +596,7 @@ SRP_user_pwd *SRP_VBASE_get1_by_user(SRP_VBASE *vb, char *username)
  */
 char *SRP_create_verifier_ex(const char *user, const char *pass, char **salt,
                              char **verifier, const char *N, const char *g,
-                             OPENSSL_CTX *libctx, const char *propq)
+                             OSSL_LIB_CTX *libctx, const char *propq)
 {
     int len;
     char *result = NULL, *vf = NULL;
@@ -706,7 +702,7 @@ char *SRP_create_verifier(const char *user, const char *pass, char **salt,
  */
 int SRP_create_verifier_BN_ex(const char *user, const char *pass, BIGNUM **salt,
                               BIGNUM **verifier, const BIGNUM *N,
-                              const BIGNUM *g, OPENSSL_CTX *libctx,
+                              const BIGNUM *g, OSSL_LIB_CTX *libctx,
                               const char *propq)
 {
     int result = 0;

@@ -25,7 +25,7 @@
 #include "crypto/dsa.h"
 #include "crypto/dh.h" /* required by DSA_dup_DH() */
 
-static DSA *dsa_new_intern(ENGINE *engine, OPENSSL_CTX *libctx);
+static DSA *dsa_new_intern(ENGINE *engine, OSSL_LIB_CTX *libctx);
 
 #ifndef FIPS_MODULE
 
@@ -56,7 +56,7 @@ DH *DSA_dup_DH(const DSA *r)
     if (ret == NULL)
         goto err;
 
-    if (!ffc_params_copy(dh_get0_params(ret), &r->params))
+    if (!ossl_ffc_params_copy(dh_get0_params(ret), &r->params))
         goto err;
 
     if (r->pub_key != NULL) {
@@ -132,7 +132,7 @@ const DSA_METHOD *DSA_get_method(DSA *d)
     return d->meth;
 }
 
-static DSA *dsa_new_intern(ENGINE *engine, OPENSSL_CTX *libctx)
+static DSA *dsa_new_intern(ENGINE *engine, OSSL_LIB_CTX *libctx)
 {
     DSA *ret = OPENSSL_zalloc(sizeof(*ret));
 
@@ -194,7 +194,7 @@ DSA *DSA_new_method(ENGINE *engine)
     return dsa_new_intern(engine, NULL);
 }
 
-DSA *dsa_new_with_ctx(OPENSSL_CTX *libctx)
+DSA *dsa_new_with_ctx(OSSL_LIB_CTX *libctx)
 {
     return dsa_new_intern(NULL, libctx);
 }
@@ -231,7 +231,7 @@ void DSA_free(DSA *r)
 
     CRYPTO_THREAD_lock_free(r->lock);
 
-    ffc_params_cleanup(&r->params);
+    ossl_ffc_params_cleanup(&r->params);
     BN_clear_free(r->pub_key);
     BN_clear_free(r->priv_key);
     OPENSSL_free(r);
@@ -252,7 +252,7 @@ int DSA_up_ref(DSA *r)
 void DSA_get0_pqg(const DSA *d,
                   const BIGNUM **p, const BIGNUM **q, const BIGNUM **g)
 {
-    ffc_params_get0_pqg(&d->params, p, q, g);
+    ossl_ffc_params_get0_pqg(&d->params, p, q, g);
 }
 
 int DSA_set0_pqg(DSA *d, BIGNUM *p, BIGNUM *q, BIGNUM *g)
@@ -265,7 +265,7 @@ int DSA_set0_pqg(DSA *d, BIGNUM *p, BIGNUM *q, BIGNUM *g)
         || (d->params.g == NULL && g == NULL))
         return 0;
 
-    ffc_params_set0_pqg(&d->params, p, q, g);
+    ossl_ffc_params_set0_pqg(&d->params, p, q, g);
     d->dirty_cnt++;
 
     return 1;
@@ -356,7 +356,7 @@ int dsa_ffc_params_fromdata(DSA *dsa, const OSSL_PARAM params[])
     if (ffc == NULL)
         return 0;
 
-    ret = ffc_params_fromdata(ffc, params);
+    ret = ossl_ffc_params_fromdata(ffc, params);
     if (ret)
         dsa->dirty_cnt++;
     return ret;

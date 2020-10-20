@@ -7,6 +7,9 @@
  * https://www.openssl.org/source/license.html
  */
 
+/* We need to use some engine deprecated APIs */
+#define OPENSSL_SUPPRESS_DEPRECATED
+
 #include <stdio.h>
 #include "internal/cryptlib.h"
 #include <openssl/bn.h>
@@ -18,9 +21,9 @@
 #include "crypto/asn1.h"
 #include "crypto/evp.h"
 
-DEFINE_STACK_OF(ASN1_TYPE)
 EVP_PKEY *d2i_PrivateKey_ex(int type, EVP_PKEY **a, const unsigned char **pp,
-                            long length, OPENSSL_CTX *libctx, const char *propq)
+                            long length, OSSL_LIB_CTX *libctx,
+                            const char *propq)
 {
     EVP_PKEY *ret;
     const unsigned char *p = *pp;
@@ -43,25 +46,36 @@ EVP_PKEY *d2i_PrivateKey_ex(int type, EVP_PKEY **a, const unsigned char **pp,
         goto err;
     }
 
+    ERR_set_mark();
     if (!ret->ameth->old_priv_decode ||
         !ret->ameth->old_priv_decode(ret, &p, length)) {
         if (ret->ameth->priv_decode != NULL
-                || ret->ameth->priv_decode_with_libctx != NULL) {
+                || ret->ameth->priv_decode_ex != NULL) {
             EVP_PKEY *tmp;
             PKCS8_PRIV_KEY_INFO *p8 = NULL;
             p8 = d2i_PKCS8_PRIV_KEY_INFO(NULL, &p, length);
-            if (p8 == NULL)
+            if (p8 == NULL) {
+                ERR_clear_last_mark();
                 goto err;
-            tmp = evp_pkcs82pkey_int(p8, libctx, propq);
+            }
+            tmp = EVP_PKCS82PKEY_ex(p8, libctx, propq);
             PKCS8_PRIV_KEY_INFO_free(p8);
-            if (tmp == NULL)
+            if (tmp == NULL) {
+                ERR_clear_last_mark();
                 goto err;
+            }
             EVP_PKEY_free(ret);
             ret = tmp;
+            ERR_pop_to_mark();
+            if (EVP_PKEY_type(type) != EVP_PKEY_base_id(ret))
+                goto err;
         } else {
+            ERR_clear_last_mark();
             ASN1err(0, ERR_R_ASN1_LIB);
             goto err;
         }
+    } else {
+      ERR_clear_last_mark();
     }
     *pp = p;
     if (a != NULL)
@@ -85,7 +99,7 @@ EVP_PKEY *d2i_PrivateKey(int type, EVP_PKEY **a, const unsigned char **pp,
  */
 
 EVP_PKEY *d2i_AutoPrivateKey_ex(EVP_PKEY **a, const unsigned char **pp,
-                                long length, OPENSSL_CTX *libctx,
+                                long length, OSSL_LIB_CTX *libctx,
                                 const char *propq)
 {
     STACK_OF(ASN1_TYPE) *inkey;
@@ -117,7 +131,7 @@ EVP_PKEY *d2i_AutoPrivateKey_ex(EVP_PKEY **a, const unsigned char **pp,
             ASN1err(0, ASN1_R_UNSUPPORTED_PUBLIC_KEY_TYPE);
             return NULL;
         }
-        ret = evp_pkcs82pkey_int(p8, libctx, propq);
+        ret = EVP_PKCS82PKEY_ex(p8, libctx, propq);
         PKCS8_PRIV_KEY_INFO_free(p8);
         if (ret == NULL)
             return NULL;

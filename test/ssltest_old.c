@@ -81,9 +81,6 @@
 # include <unistd.h>
 #endif
 
-DEFINE_STACK_OF(SSL_COMP)
-DEFINE_STACK_OF_STRING()
-
 static SSL_CTX *s_ctx = NULL;
 static SSL_CTX *s_ctx2 = NULL;
 
@@ -781,7 +778,7 @@ static void print_details(SSL *c_ssl, const char *prefix)
                prefix,
                SSL_get_version(c_ssl),
                SSL_CIPHER_get_version(ciph), SSL_CIPHER_get_name(ciph));
-    cert = SSL_get_peer_certificate(c_ssl);
+    cert = SSL_get0_peer_certificate(c_ssl);
     if (cert != NULL) {
         EVP_PKEY* pubkey = X509_get0_pubkey(cert);
 
@@ -789,7 +786,6 @@ static void print_details(SSL *c_ssl, const char *prefix)
             BIO_puts(bio_stdout, ", ");
             print_key_details(bio_stdout, pubkey);
         }
-        X509_free(cert);
     }
     if (SSL_get_peer_tmp_key(c_ssl, &pkey)) {
         BIO_puts(bio_stdout, ", temp key: ");
@@ -930,7 +926,7 @@ int main(int argc, char *argv[])
     char *arg = NULL, *argn = NULL;
     const char *provider = NULL, *config = NULL;
     OSSL_PROVIDER *thisprov = NULL, *defctxnull = NULL;
-    OPENSSL_CTX *libctx = NULL;
+    OSSL_LIB_CTX *libctx = NULL;
 
     verbose = 0;
     debug = 0;
@@ -1371,12 +1367,12 @@ int main(int argc, char *argv[])
         defctxnull = OSSL_PROVIDER_load(NULL, "null");
         if (defctxnull == NULL)
             goto end;
-        libctx = OPENSSL_CTX_new();
+        libctx = OSSL_LIB_CTX_new();
         if (libctx == NULL)
             goto end;
 
         if (config != NULL
-                && !OPENSSL_CTX_load_config(libctx, config))
+                && !OSSL_LIB_CTX_load_config(libctx, config))
             goto end;
 
         thisprov = OSSL_PROVIDER_load(libctx, provider);
@@ -1384,9 +1380,9 @@ int main(int argc, char *argv[])
             goto end;
     }
 
-    c_ctx = SSL_CTX_new_with_libctx(libctx, NULL, meth);
-    s_ctx = SSL_CTX_new_with_libctx(libctx, NULL, meth);
-    s_ctx2 = SSL_CTX_new_with_libctx(libctx, NULL, meth); /* no SSL_CTX_dup! */
+    c_ctx = SSL_CTX_new_ex(libctx, NULL, meth);
+    s_ctx = SSL_CTX_new_ex(libctx, NULL, meth);
+    s_ctx2 = SSL_CTX_new_ex(libctx, NULL, meth); /* no SSL_CTX_dup! */
     if ((c_ctx == NULL) || (s_ctx == NULL) || (s_ctx2 == NULL)) {
         ERR_print_errors(bio_err);
         goto end;
@@ -1895,7 +1891,7 @@ int main(int argc, char *argv[])
 
     OSSL_PROVIDER_unload(defctxnull);
     OSSL_PROVIDER_unload(thisprov);
-    OPENSSL_CTX_free(libctx);
+    OSSL_LIB_CTX_free(libctx);
 
     BIO_free(bio_err);
     EXIT(ret);

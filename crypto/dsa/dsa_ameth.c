@@ -17,7 +17,6 @@
 #include <openssl/x509.h>
 #include <openssl/asn1.h>
 #include <openssl/bn.h>
-#include <openssl/cms.h>
 #include <openssl/core_names.h>
 #include <openssl/param_build.h>
 #include "internal/cryptlib.h"
@@ -27,7 +26,7 @@
 #include "internal/ffc.h"
 #include "dsa_local.h"
 
-static int dsa_pub_decode(EVP_PKEY *pkey, X509_PUBKEY *pubkey)
+static int dsa_pub_decode(EVP_PKEY *pkey, const X509_PUBKEY *pubkey)
 {
     const unsigned char *p, *pm;
     int pklen, pmlen;
@@ -300,7 +299,7 @@ static int dsa_copy_parameters(EVP_PKEY *to, const EVP_PKEY *from)
         if (to->pkey.dsa == NULL)
             return 0;
     }
-    if (!ffc_params_copy(&to->pkey.dsa->params, &from->pkey.dsa->params))
+    if (!ossl_ffc_params_copy(&to->pkey.dsa->params, &from->pkey.dsa->params))
         return 0;
 
     to->pkey.dsa->dirty_cnt++;
@@ -309,7 +308,7 @@ static int dsa_copy_parameters(EVP_PKEY *to, const EVP_PKEY *from)
 
 static int dsa_cmp_parameters(const EVP_PKEY *a, const EVP_PKEY *b)
 {
-    return ffc_params_cmp(&a->pkey.dsa->params, &b->pkey.dsa->params, 1);
+    return ossl_ffc_params_cmp(&a->pkey.dsa->params, &b->pkey.dsa->params, 1);
 }
 
 static int dsa_pub_cmp(const EVP_PKEY *a, const EVP_PKEY *b)
@@ -363,7 +362,7 @@ static int do_dsa_print(BIO *bp, const DSA *x, int off, int ptype)
         goto err;
     if (!ASN1_bn_print(bp, "pub: ", pub_key, NULL, off))
         goto err;
-    if (!ffc_params_print(bp, &x->params, off))
+    if (!ossl_ffc_params_print(bp, &x->params, off))
         goto err;
     ret = 1;
  err:
@@ -375,10 +374,9 @@ static int dsa_param_decode(EVP_PKEY *pkey,
 {
     DSA *dsa;
 
-    if ((dsa = d2i_DSAparams(NULL, pder, derlen)) == NULL) {
-        DSAerr(DSA_F_DSA_PARAM_DECODE, ERR_R_DSA_LIB);
+    if ((dsa = d2i_DSAparams(NULL, pder, derlen)) == NULL)
         return 0;
-    }
+
     dsa->dirty_cnt++;
     EVP_PKEY_assign_DSA(pkey, dsa);
     return 1;
@@ -481,27 +479,6 @@ static int dsa_pkey_ctrl(EVP_PKEY *pkey, int op, long arg1, void *arg2)
             X509_ALGOR_set0(alg2, OBJ_nid2obj(snid), V_ASN1_UNDEF, 0);
         }
         return 1;
-#ifndef OPENSSL_NO_CMS
-    case ASN1_PKEY_CTRL_CMS_SIGN:
-        if (arg1 == 0) {
-            int snid, hnid;
-            X509_ALGOR *alg1, *alg2;
-            CMS_SignerInfo_get0_algs(arg2, NULL, NULL, &alg1, &alg2);
-            if (alg1 == NULL || alg1->algorithm == NULL)
-                return -1;
-            hnid = OBJ_obj2nid(alg1->algorithm);
-            if (hnid == NID_undef)
-                return -1;
-            if (!OBJ_find_sigid_by_algs(&snid, hnid, EVP_PKEY_id(pkey)))
-                return -1;
-            X509_ALGOR_set0(alg2, OBJ_nid2obj(snid), V_ASN1_UNDEF, 0);
-        }
-        return 1;
-
-    case ASN1_PKEY_CTRL_CMS_RI_TYPE:
-        *(int *)arg2 = CMS_RECIPINFO_NONE;
-        return 1;
-#endif
 
     case ASN1_PKEY_CTRL_DEFAULT_MD_NID:
         *(int *)arg2 = NID_sha256;
@@ -520,7 +497,7 @@ static size_t dsa_pkey_dirty_cnt(const EVP_PKEY *pkey)
 }
 
 static int dsa_pkey_export_to(const EVP_PKEY *from, void *to_keydata,
-                              EVP_KEYMGMT *to_keymgmt, OPENSSL_CTX *libctx,
+                              EVP_KEYMGMT *to_keymgmt, OSSL_LIB_CTX *libctx,
                               const char *propq)
 {
     DSA *dsa = from->pkey.dsa;

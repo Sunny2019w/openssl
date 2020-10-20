@@ -24,23 +24,40 @@ static int int_start_context(WPACKET *pkt, int tag)
 
 static int int_end_context(WPACKET *pkt, int tag)
 {
+    /*
+     * If someone set the flag WPACKET_FLAGS_ABANDON_ON_ZERO_LENGTH on this
+     * sub-packet and this sub-packet has nothing written to it, the DER length
+     * will not be written, and the total written size will be unchanged before
+     * and after WPACKET_close().  We use size1 and size2 to determine if
+     * anything was written, and only write our tag if it has.
+     *
+     */
+    size_t size1, size2;
+
     if (tag < 0)
         return 1;
     if (!ossl_assert(tag <= 30))
         return 0;
-    return WPACKET_close(pkt)
-        && WPACKET_put_bytes_u8(pkt, DER_C_CONTEXT | tag);
+
+    /* Context specific are normally (?) constructed */
+    tag |= DER_F_CONSTRUCTED | DER_C_CONTEXT;
+
+    return WPACKET_get_total_written(pkt, &size1)
+        && WPACKET_close(pkt)
+        && WPACKET_get_total_written(pkt, &size2)
+        && (size1 == size2 || WPACKET_put_bytes_u8(pkt, tag));
 }
 
-int DER_w_precompiled(WPACKET *pkt, int tag,
-                      const unsigned char *precompiled, size_t precompiled_n)
+int ossl_DER_w_precompiled(WPACKET *pkt, int tag,
+                           const unsigned char *precompiled,
+                           size_t precompiled_n)
 {
     return int_start_context(pkt, tag)
         && WPACKET_memcpy(pkt, precompiled, precompiled_n)
         && int_end_context(pkt, tag);
 }
 
-int DER_w_boolean(WPACKET *pkt, int tag, int b)
+int ossl_DER_w_boolean(WPACKET *pkt, int tag, int b)
 {
     return int_start_context(pkt, tag)
         && WPACKET_start_sub_packet(pkt)
@@ -48,6 +65,29 @@ int DER_w_boolean(WPACKET *pkt, int tag, int b)
         && !WPACKET_close(pkt)
         && !WPACKET_put_bytes_u8(pkt, DER_P_BOOLEAN)
         && int_end_context(pkt, tag);
+}
+
+int ossl_DER_w_octet_string(WPACKET *pkt, int tag,
+                            const unsigned char *data, size_t data_n)
+{
+    return int_start_context(pkt, tag)
+        && WPACKET_start_sub_packet(pkt)
+        && WPACKET_memcpy(pkt, data, data_n)
+        && WPACKET_close(pkt)
+        && WPACKET_put_bytes_u8(pkt, DER_P_OCTET_STRING)
+        && int_end_context(pkt, tag);
+}
+
+int ossl_DER_w_octet_string_uint32(WPACKET *pkt, int tag, uint32_t value)
+{
+    unsigned char tmp[4] = { 0, 0, 0, 0 };
+    unsigned char *pbuf = tmp + (sizeof(tmp) - 1);
+
+    while (value > 0) {
+        *pbuf-- = (value & 0xFF);
+        value >>= 8;
+    }
+    return ossl_DER_w_octet_string(pkt, tag, tmp, sizeof(tmp));
 }
 
 static int int_der_w_integer(WPACKET *pkt, int tag,
@@ -85,7 +125,7 @@ static int int_put_bytes_ulong(WPACKET *pkt, const void *v,
 }
 
 /* For integers, we only support unsigned values for now */
-int DER_w_ulong(WPACKET *pkt, int tag, unsigned long v)
+int ossl_DER_w_ulong(WPACKET *pkt, int tag, unsigned long v)
 {
     return int_der_w_integer(pkt, tag, int_put_bytes_ulong, &v);
 }
@@ -108,17 +148,17 @@ static int int_put_bytes_bn(WPACKET *pkt, const void *v,
     return 1;
 }
 
-int DER_w_bn(WPACKET *pkt, int tag, const BIGNUM *v)
+int ossl_DER_w_bn(WPACKET *pkt, int tag, const BIGNUM *v)
 {
     if (v == NULL || BN_is_negative(v))
         return 0;
     if (BN_is_zero(v))
-        return DER_w_ulong(pkt, tag, 0);
+        return ossl_DER_w_ulong(pkt, tag, 0);
 
     return int_der_w_integer(pkt, tag, int_put_bytes_bn, v);
 }
 
-int DER_w_null(WPACKET *pkt, int tag)
+int ossl_DER_w_null(WPACKET *pkt, int tag)
 {
     return int_start_context(pkt, tag)
         && WPACKET_start_sub_packet(pkt)
@@ -128,15 +168,32 @@ int DER_w_null(WPACKET *pkt, int tag)
 }
 
 /* Constructed things need a start and an end */
-int DER_w_begin_sequence(WPACKET *pkt, int tag)
+int ossl_DER_w_begin_sequence(WPACKET *pkt, int tag)
 {
     return int_start_context(pkt, tag)
         && WPACKET_start_sub_packet(pkt);
 }
 
-int DER_w_end_sequence(WPACKET *pkt, int tag)
+int ossl_DER_w_end_sequence(WPACKET *pkt, int tag)
 {
-    return WPACKET_close(pkt)
-        && WPACKET_put_bytes_u8(pkt, DER_F_CONSTRUCTED | DER_P_SEQUENCE)
+    /*
+     * If someone set the flag WPACKET_FLAGS_ABANDON_ON_ZERO_LENGTH on this
+     * sub-packet and this sub-packet has nothing written to it, the DER length
+     * will not be written, and the total written size will be unchanged before
+     * and after WPACKET_close().  We use size1 and size2 to determine if
+     * anything was written, and only write our tag if it has.
+     *
+     * Because we know that int_end_context() needs to do the same check,
+     * we reproduce this flag if the written length was unchanged, or we will
+     * have an erroneous context tag.
+     */
+    size_t size1, size2;
+
+    return WPACKET_get_total_written(pkt, &size1)
+        && WPACKET_close(pkt)
+        && WPACKET_get_total_written(pkt, &size2)
+        && (size1 == size2
+            ? WPACKET_set_flags(pkt, WPACKET_FLAGS_ABANDON_ON_ZERO_LENGTH)
+            : WPACKET_put_bytes_u8(pkt, DER_F_CONSTRUCTED | DER_P_SEQUENCE))
         && int_end_context(pkt, tag);
 }

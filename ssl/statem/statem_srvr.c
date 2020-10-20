@@ -26,10 +26,6 @@
 #include <openssl/core_names.h>
 #include <openssl/asn1t.h>
 
-DEFINE_STACK_OF(X509)
-DEFINE_STACK_OF(SSL_COMP)
-DEFINE_STACK_OF_CONST(SSL_CIPHER)
-
 #define TICKET_NONCE_SIZE       8
 
 typedef struct {
@@ -1312,7 +1308,7 @@ int dtls_construct_hello_verify_request(SSL *s, WPACKET *pkt)
     if (s->ctx->app_gen_cookie_cb == NULL ||
         s->ctx->app_gen_cookie_cb(s, s->d1->cookie,
                                   &cookie_leni) == 0 ||
-        cookie_leni > 255) {
+        cookie_leni > DTLS1_COOKIE_LENGTH) {
         SSLfatal(s, SSL_AD_NO_ALERT, SSL_F_DTLS_CONSTRUCT_HELLO_VERIFY_REQUEST,
                  SSL_R_COOKIE_GEN_CALLBACK_FAILURE);
         return 0;
@@ -2636,20 +2632,6 @@ int tls_construct_server_key_exchange(SSL *s, WPACKET *pkt)
             goto err;
         }
 
-        /*
-         * TODO(3.0) Remove this when EVP_PKEY_get1_tls_encodedpoint()
-         * knows how to get a key from an encoded point with the help of
-         * a OSSL_SERIALIZER deserializer.  We know that EVP_PKEY_get0()
-         * downgrades an EVP_PKEY to contain a legacy key.
-         *
-         * THIS IS TEMPORARY
-         */
-        EVP_PKEY_get0(s->s3.tmp.pkey);
-        if (EVP_PKEY_id(s->s3.tmp.pkey) == EVP_PKEY_NONE) {
-            SSLfatal(s, SSL_AD_INTERNAL_ERROR, 0, ERR_R_EC_LIB);
-            goto err;
-        }
-
         /* Encode the public key. */
         encodedlen = EVP_PKEY_get1_tls_encodedpoint(s->s3.tmp.pkey,
                                                     &encodedPoint);
@@ -2823,7 +2805,7 @@ int tls_construct_server_key_exchange(SSL *s, WPACKET *pkt)
 
         if (EVP_DigestSignInit_ex(md_ctx, &pctx,
                                   md == NULL ? NULL : EVP_MD_name(md),
-                                  s->ctx->propq, pkey, s->ctx->libctx) <= 0) {
+                                  s->ctx->libctx, s->ctx->propq, pkey) <= 0) {
             SSLfatal(s, SSL_AD_INTERNAL_ERROR,
                      SSL_F_TLS_CONSTRUCT_SERVER_KEY_EXCHANGE,
                      ERR_R_INTERNAL_ERROR);
@@ -3161,7 +3143,7 @@ static int tls_process_cke_dhe(SSL *s, PACKET *pkt)
     ckey = EVP_PKEY_new();
     if (ckey == NULL || EVP_PKEY_copy_parameters(ckey, skey) == 0) {
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, SSL_F_TLS_PROCESS_CKE_DHE,
-                 SSL_R_BN_LIB);
+                 SSL_R_COPY_PARAMETERS_FAILED);
         goto err;
     }
 
@@ -3230,22 +3212,7 @@ static int tls_process_cke_ecdhe(SSL *s, PACKET *pkt)
         ckey = EVP_PKEY_new();
         if (ckey == NULL || EVP_PKEY_copy_parameters(ckey, skey) <= 0) {
             SSLfatal(s, SSL_AD_INTERNAL_ERROR, SSL_F_TLS_PROCESS_CKE_ECDHE,
-                     ERR_R_EVP_LIB);
-            goto err;
-        }
-
-        /*
-         * TODO(3.0) Remove this when EVP_PKEY_get1_tls_encodedpoint()
-         * knows how to get a key from an encoded point with the help of
-         * a OSSL_SERIALIZER deserializer.  We know that EVP_PKEY_get0()
-         * downgrades an EVP_PKEY to contain a legacy key.
-         *
-         * THIS IS TEMPORARY
-         */
-        EVP_PKEY_get0(ckey);
-        if (EVP_PKEY_id(ckey) == EVP_PKEY_NONE) {
-            SSLfatal(s, SSL_AD_INTERNAL_ERROR, SSL_F_TLS_PROCESS_CKE_ECDHE,
-                     ERR_R_INTERNAL_ERROR);
+                     SSL_R_COPY_PARAMETERS_FAILED);
             goto err;
         }
 
@@ -3430,6 +3397,93 @@ static int tls_process_cke_gost(SSL *s, PACKET *pkt)
 #endif
 }
 
+static int tls_process_cke_gost18(SSL *s, PACKET *pkt)
+{
+#ifndef OPENSSL_NO_GOST
+    unsigned char rnd_dgst[32];
+    EVP_PKEY_CTX *pkey_ctx = NULL;
+    EVP_PKEY *pk = NULL;
+    unsigned char premaster_secret[32];
+    const unsigned char *start = NULL;
+    size_t outlen = 32, inlen = 0;
+    int ret = 0;
+    int cipher_nid = gost18_cke_cipher_nid(s);
+
+    if (cipher_nid == NID_undef) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, SSL_F_TLS_CONSTRUCT_CKE_GOST18,
+                 ERR_R_INTERNAL_ERROR);
+        return 0;
+    }
+
+    if (gost_ukm(s, rnd_dgst) <= 0) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, SSL_F_TLS_CONSTRUCT_CKE_GOST18,
+                 ERR_R_INTERNAL_ERROR);
+        goto err;
+    }
+
+    /* Get our certificate private key */
+    pk = s->cert->pkeys[SSL_PKEY_GOST12_512].privatekey != NULL ?
+         s->cert->pkeys[SSL_PKEY_GOST12_512].privatekey :
+         s->cert->pkeys[SSL_PKEY_GOST12_256].privatekey;
+    if (pk == NULL) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, SSL_F_TLS_PROCESS_CKE_GOST18,
+                 SSL_R_BAD_HANDSHAKE_STATE);
+        goto err;
+    }
+
+    pkey_ctx = EVP_PKEY_CTX_new_from_pkey(s->ctx->libctx, pk, s->ctx->propq);
+    if (pkey_ctx == NULL) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, SSL_F_TLS_PROCESS_CKE_GOST18,
+                 ERR_R_MALLOC_FAILURE);
+        goto err;
+    }
+    if (EVP_PKEY_decrypt_init(pkey_ctx) <= 0) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, SSL_F_TLS_PROCESS_CKE_GOST18,
+                 ERR_R_INTERNAL_ERROR);
+        goto err;
+    }
+
+    /* Reuse EVP_PKEY_CTRL_SET_IV, make choice in engine code depending on size */
+    if (EVP_PKEY_CTX_ctrl(pkey_ctx, -1, EVP_PKEY_OP_DECRYPT,
+                          EVP_PKEY_CTRL_SET_IV, 32, rnd_dgst) < 0) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, SSL_F_TLS_PROCESS_CKE_GOST18,
+                 SSL_R_LIBRARY_BUG);
+        goto err;
+    }
+
+    if (EVP_PKEY_CTX_ctrl(pkey_ctx, -1, EVP_PKEY_OP_DECRYPT,
+                          EVP_PKEY_CTRL_CIPHER, cipher_nid, NULL) < 0) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, SSL_F_TLS_PROCESS_CKE_GOST18,
+                 SSL_R_LIBRARY_BUG);
+        goto err;
+    }
+    inlen = PACKET_remaining(pkt);
+    start = PACKET_data(pkt);
+
+    if (EVP_PKEY_decrypt(pkey_ctx, premaster_secret, &outlen, start, inlen) <= 0) {
+        SSLfatal(s, SSL_AD_DECODE_ERROR, SSL_F_TLS_PROCESS_CKE_GOST18,
+                 SSL_R_DECRYPTION_FAILED);
+        goto err;
+    }
+    /* Generate master secret */
+    if (!ssl_generate_master_secret(s, premaster_secret,
+         sizeof(premaster_secret), 0)) {
+         /* SSLfatal() already called */
+         goto err;
+    }
+    ret = 1;
+
+ err:
+    EVP_PKEY_CTX_free(pkey_ctx);
+    return ret;
+#else
+    /* Should never happen */
+    SSLfatal(s, SSL_AD_INTERNAL_ERROR, SSL_F_TLS_PROCESS_CKE_GOST18,
+             ERR_R_INTERNAL_ERROR);
+    return 0;
+#endif
+}
+
 MSG_PROCESS_RETURN tls_process_client_key_exchange(SSL *s, PACKET *pkt)
 {
     unsigned long alg_k;
@@ -3477,6 +3531,11 @@ MSG_PROCESS_RETURN tls_process_client_key_exchange(SSL *s, PACKET *pkt)
         }
     } else if (alg_k & SSL_kGOST) {
         if (!tls_process_cke_gost(s, pkt)) {
+            /* SSLfatal() already called */
+            goto err;
+        }
+    } else if (alg_k & SSL_kGOST18) {
+        if (!tls_process_cke_gost18(s, pkt)) {
             /* SSLfatal() already called */
             goto err;
         }
@@ -3613,12 +3672,18 @@ MSG_PROCESS_RETURN tls_process_client_certificate(SSL *s, PACKET *pkt)
         }
 
         certstart = certbytes;
-        x = d2i_X509(NULL, (const unsigned char **)&certbytes, l);
+        x = X509_new_ex(s->ctx->libctx, s->ctx->propq);
         if (x == NULL) {
+            SSLfatal(s, SSL_AD_DECODE_ERROR,
+                     SSL_F_TLS_PROCESS_CLIENT_CERTIFICATE, ERR_R_MALLOC_FAILURE);
+            goto err;
+        }
+        if (d2i_X509(&x, (const unsigned char **)&certbytes, l) == NULL) {
             SSLfatal(s, SSL_AD_DECODE_ERROR,
                      SSL_F_TLS_PROCESS_CLIENT_CERTIFICATE, ERR_R_ASN1_LIB);
             goto err;
         }
+
         if (certbytes != (certstart + l)) {
             SSLfatal(s, SSL_AD_DECODE_ERROR,
                      SSL_F_TLS_PROCESS_CLIENT_CERTIFICATE,

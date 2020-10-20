@@ -56,7 +56,7 @@ ASN1_VALUE *OSSL_HTTP_post_asn1(const char *server, const char *port,
                                 OSSL_HTTP_bio_cb_t bio_update_fn, void *arg,
                                 const STACK_OF(CONF_VALUE) *headers,
                                 const char *content_type,
-                                ASN1_VALUE *req, const ASN1_ITEM *req_it,
+                                const ASN1_VALUE *req, const ASN1_ITEM *req_it,
                                 int maxline, unsigned long max_resp_len,
                                 int timeout, const char *expected_ct,
                                 const ASN1_ITEM *rsp_it);
@@ -74,7 +74,7 @@ int OSSL_HTTP_proxy_connect(BIO *bio, const char *server, const char *port,
                             int timeout, BIO *bio_err, const char *prog);
 
 int OSSL_HTTP_parse_url(const char *url, char **phost, char **pport,
-                        char **ppath, int *pssl);
+                        int *pport_num, char **ppath, int *pssl);
 
 # ifdef  __cplusplus
 }

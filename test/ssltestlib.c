@@ -684,7 +684,7 @@ static int always_retry_puts(BIO *bio, const char *str)
     return -1;
 }
 
-int create_ssl_ctx_pair(OPENSSL_CTX *libctx, const SSL_METHOD *sm,
+int create_ssl_ctx_pair(OSSL_LIB_CTX *libctx, const SSL_METHOD *sm,
 const SSL_METHOD *cm,
                         int min_proto_version, int max_proto_version,
                         SSL_CTX **sctx, SSL_CTX **cctx, char *certfile,
@@ -695,13 +695,13 @@ const SSL_METHOD *cm,
 
     if (*sctx != NULL)
         serverctx = *sctx;
-    else if (!TEST_ptr(serverctx = SSL_CTX_new_with_libctx(libctx, NULL, sm)))
+    else if (!TEST_ptr(serverctx = SSL_CTX_new_ex(libctx, NULL, sm)))
         goto err;
 
     if (cctx != NULL) {
         if (*cctx != NULL)
             clientctx = *cctx;
-        else if (!TEST_ptr(clientctx = SSL_CTX_new_with_libctx(libctx, NULL, cm)))
+        else if (!TEST_ptr(clientctx = SSL_CTX_new_ex(libctx, NULL, cm)))
             goto err;
     }
 
@@ -741,8 +741,10 @@ const SSL_METHOD *cm,
     return 1;
 
  err:
-    SSL_CTX_free(serverctx);
-    SSL_CTX_free(clientctx);
+    if (*sctx == NULL)
+        SSL_CTX_free(serverctx);
+    if (cctx != NULL && *cctx == NULL)
+        SSL_CTX_free(clientctx);
     return 0;
 }
 

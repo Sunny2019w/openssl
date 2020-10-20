@@ -16,10 +16,6 @@
 #include <openssl/ocsp.h>
 #include "ocsp_local.h"
 
-DEFINE_STACK_OF(OCSP_ONEREQ)
-DEFINE_STACK_OF(X509)
-DEFINE_STACK_OF(OCSP_SINGLERESP)
-
 /*
  * Utility functions related to sending OCSP responses and extracting
  * relevant information from the request.
@@ -162,14 +158,7 @@ OCSP_SINGLERESP *OCSP_basic_add1_status(OCSP_BASICRESP *rsp,
 
 int OCSP_basic_add1_cert(OCSP_BASICRESP *resp, X509 *cert)
 {
-    if (resp->certs == NULL
-        && (resp->certs = sk_X509_new_null()) == NULL)
-        return 0;
-
-    if (!sk_X509_push(resp->certs, cert))
-        return 0;
-    X509_up_ref(cert);
-    return 1;
+    return X509_add_cert_new(&resp->certs, cert, X509_ADD_FLAG_UP_REF);
 }
 
 /*
@@ -264,7 +253,7 @@ int OCSP_RESPID_set_by_name(OCSP_RESPID *respid, X509 *cert)
 }
 
 int OCSP_RESPID_set_by_key_ex(OCSP_RESPID *respid, X509 *cert,
-                              OPENSSL_CTX *libctx, const char *propq)
+                              OSSL_LIB_CTX *libctx, const char *propq)
 {
     ASN1_OCTET_STRING *byKey = NULL;
     unsigned char md[SHA_DIGEST_LENGTH];
@@ -301,7 +290,7 @@ int OCSP_RESPID_set_by_key(OCSP_RESPID *respid, X509 *cert)
     return OCSP_RESPID_set_by_key_ex(respid, cert, NULL, NULL);
 }
 
-int OCSP_RESPID_match_ex(OCSP_RESPID *respid, X509 *cert, OPENSSL_CTX *libctx,
+int OCSP_RESPID_match_ex(OCSP_RESPID *respid, X509 *cert, OSSL_LIB_CTX *libctx,
                          const char *propq)
 {
     EVP_MD *sha1 = NULL;

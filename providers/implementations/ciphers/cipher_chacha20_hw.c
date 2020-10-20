@@ -1,5 +1,5 @@
 /*
- * Copyright 2019 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 2019-2020 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the Apache License 2.0 (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -114,7 +114,7 @@ static const PROV_CIPHER_HW_CHACHA20 chacha20_hw = {
     chacha20_initiv
 };
 
-const PROV_CIPHER_HW *PROV_CIPHER_HW_chacha20(size_t keybits)
+const PROV_CIPHER_HW *ossl_prov_cipher_hw_chacha20(size_t keybits)
 {
     return (PROV_CIPHER_HW *)&chacha20_hw;
 }

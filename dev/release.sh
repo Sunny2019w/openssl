@@ -24,6 +24,7 @@ Usage: release.sh [ options ... ]
                 where '{major}' and '{minor}' are the major and minor
                 version numbers.
 
+--reviewer=<id> The reviewer of the commits.
 --local-user=<keyid>
                 For the purpose of signing tags and tar files, use this
                 key (default: use the default e-mail address’ key).
@@ -65,6 +66,7 @@ do_manual=false
 
 tagkey=' -s'
 gpgkey=
+reviewers=
 
 upload_address=upload@dev.openssl.org
 
@@ -73,6 +75,7 @@ TEMP=$(getopt -l 'alpha,next-beta,beta,final' \
               -l 'no-upload,no-update' \
               -l 'verbose,debug' \
               -l 'local-user:' \
+              -l 'reviewer:' \
               -l 'force' \
               -l 'help,manual' \
               -n release.sh -- - "$@")
@@ -120,6 +123,11 @@ while true; do
         shift
         tagley=" -u $1"
         gpgkey=" -u $1"
+        shift
+        ;;
+    --reviewer )
+        reviewers="$reviewers $1=$2"
+        shift
         shift
         ;;
     --force )
@@ -219,6 +227,7 @@ else
     echo >&2 "Please 'git checkout' an approprite branch"
     exit 1
 fi
+orig_HEAD=$(git rev-parse HEAD)
 
 # Initialize #########################################################
 
@@ -227,42 +236,58 @@ echo "== Initializing work tree"
 get_version
 
 # Generate a cloned directory name
-clone_branch="openssl-$SERIES.x"
-release_clone="$clone_branch-release-tmp"
+release_clone="$orig_branch-release-tmp"
 
 echo "== Work tree will be in $release_clone"
 
 # Make a clone in a subdirectory and move there
 if ! [ -d "$release_clone" ]; then
     $VERBOSE "== Cloning to $release_clone"
-    git clone $git_quiet -b "$orig_branch" . "$release_clone"
+    git clone $git_quiet -b "$orig_branch" -o parent . "$release_clone"
 fi
 cd "$release_clone"
 
 get_version
 
-current_branch="$(git rev-parse --abbrev-ref HEAD)"
-new_branch="openssl-$SERIES.x"
+# Branches we will work with.  The release branch is where we make the
+# changes for the release, the update branch is where we make the post-
+# release changes
+update_branch="$orig_branch"
+release_branch="openssl-$SERIES.x"
 
-# Check that we're still on the same branch, or on a release branch
-if [ "$current_branch" = "$orig_branch" ]; then
-    :
-elif [ "$current_branch" = "$new_branch" ]; then
-    :
-else
-   echo >&2 "The cloned sub-directory '$release_clone' is on a branch"
-   echo >&2 "other than '$current_branch' or '$new_branch'"
-   echo >&2 "Please 'cd \"$(pwd)\"; git checkout $current_branch'"
-   exit 1
+# among others, we only create a release branch if the patch number is zero
+if [ "$update_branch" = "$release_branch" ] || [ $PATCH -ne 0 ]; then
+    if $do_branch && $warn_branch; then
+        echo >&2 "Warning! We're already in a release branch; --branch ignored"
+    fi
+    do_branch=false
 fi
 
-if $do_branch; then
-    if [ "$current_branch" = "$new_branch" ]; then
-        do_branch=false
+if ! $do_branch; then
+    release_branch="$update_branch"
+fi
+
+# Branches we create for PRs
+branch_version="$VERSION${PRE_LABEL:+-$PRE_LABEL$PRE_NUM}"
+tmp_update_branch="OSSL--$update_branch--$branch_version"
+tmp_release_branch="OSSL--$release_branch--$branch_version"
+
+# Check that we're still on the same branch as our parent repo, or on a
+# release branch
+current_branch=$(git rev-parse --abbrev-ref HEAD)
+if [ "$current_branch" = "$update_branch" ]; then
+    :
+elif [ "$current_branch" = "$release_branch" ]; then
+    :
+else
+    echo >&2 "The cloned sub-directory '$release_clone' is on a branch"
+    if [ "$update_branch" = "$release_branch" ]; then
+        echo >&2 "other than '$update_branch'."
+    else
+        echo >&2 "other than '$update_branch' or '$release_branch'."
     fi
-    if ! $do_branch && $warn_branch; then
-        echo >&2 "Warning: --branch ignored, we're already in a release branch"
-    fi
+    echo >&2 "Please 'cd \"$(pwd)\"; git checkout $update_branch'"
+    exit 1
 fi
 
 SOURCEDIR=$(pwd)
@@ -282,22 +307,13 @@ if [ "$TYPE" != 'dev' ]; then
     exit 1
 fi
 
-# We only create a release branch if the patch number is zero
-if [ $PATCH -ne 0 ]; then
-    if $do_branch; then
-        echo >&2 "Warning! We're already in a release branch; --branch ignored"
-    fi
-    do_branch=false
-fi
-
 # Update the version information.  This won't save anything anywhere, yet,
 # but does check for possible next_method errors before we do bigger work.
 next_release_state "$next_method"
 
-if $do_branch; then
-    $VERBOSE "== Creating a release branch: $new_branch"
-    git checkout $git_quiet -b "$new_branch"
-fi
+# Create our temporary release branch
+$VERBOSE "== Creating a local release branch: $tmp_release_branch"
+git checkout $git_quiet -b "$tmp_release_branch"
 
 echo "== Configuring OpenSSL for update and release.  This may take a bit of time"
 
@@ -311,7 +327,17 @@ if [ -n "$(git status --porcelain)" ]; then
     $VERBOSE "== Committing updates"
     git add -u
     git commit $git_quiet -m 'make update'
+    if [ -n "$reviewers" ]; then
+        addrev --nopr $reviewers
+    fi
 fi
+
+# Create our temporary update branch, if it's not the release branch.
+# This is used in post-release below
+if $do_branch; then
+    $VERBOSE "== Creating a local update branch: $tmp_update_branch"
+    git branch $git_quiet "$tmp_update_branch"
+fi    
 
 # Write the version information we updated
 set_version
@@ -339,6 +365,9 @@ done
 $VERBOSE "== Comitting updates and tagging"
 git add -u
 git commit $git_quiet -m "Prepare for release of $release_text"
+if [ -n "$reviewers" ]; then
+    addrev --nopr $reviewers
+fi
 echo "Tagging release with tag $tag.  You may need to enter a pass phrase"
 git tag$tagkey "$tag" -m "OpenSSL $release release tag"
 
@@ -388,11 +417,9 @@ echo "Signing the release files.  You may need to enter a pass phrase"
 gpg$gpgkey --use-agent -sba "../$tgzfile"
 gpg$gpgkey --use-agent -sta --clearsign "../$announce"
 
-# We finish off by resetting all files, so we don't have to update
-# files with release dates again
-$VERBOSE "== Reset all files to their pre-commit contents"
-git reset $git_quiet HEAD^ -- .
-git checkout -- .
+# Push everything to the parent repo
+$VERBOSE "== Push what we have to the parent repository"
+git push --follow-tags parent HEAD
 
 if $do_upload; then
     (
@@ -409,6 +436,10 @@ if $do_upload; then
 fi
 
 # Post-release #######################################################
+
+$VERBOSE "== Reset all files to their pre-release contents"
+git reset $git_quiet HEAD^ -- .
+git checkout -- .
 
 prev_release_text="$release_text"
 prev_release_date="$RELEASE_DATE"
@@ -436,10 +467,17 @@ done
 $VERBOSE "== Comitting updates"
 git add -u
 git commit $git_quiet -m "Prepare for $release_text"
+if [ -n "$reviewers" ]; then
+    addrev --nopr $reviewers
+fi
+
+# Push everything to the parent repo
+$VERBOSE "== Push what we have to the parent repository"
+git push parent HEAD
 
 if $do_branch; then
-    $VERBOSE "== Going back to the main branch $current_branch"
-    git checkout $git_quiet "$current_branch"
+    $VERBOSE "== Going back to the update branch $tmp_update_branch"
+    git checkout $git_quiet "$tmp_update_branch"
 
     get_version
     next_release_state "minor"
@@ -460,66 +498,118 @@ if $do_branch; then
     $VERBOSE "== Comitting updates"
     git add -u
     git commit $git_quiet -m "Prepare for $release_text"
+    if [ -n "$reviewers" ]; then
+        addrev --nopr $reviewers
+    fi
 fi
+
+# Push everything to the parent repo
+$VERBOSE "== Push what we have to the parent repository"
+git push parent HEAD
 
 # Done ###############################################################
     
 $VERBOSE "== Done"
 
+cd $HERE
 cat <<EOF
 
 ======================================================================
-The release is done, and involves a few commits for you to deal with.
-It has all been done in a clone of this workspace, see details below.
+The release is done, and involves a few files and commits for you to
+deal with.  Everything you need has been pushed to your repository,
+please see instructions that follow.
+======================================================================
+
 EOF
-if $do_branch; then
-    cat <<EOF
-Additionally, a release branch has been created for you, so you need
-to look for new commits in two places.
-EOF
-fi
 
 if $do_release; then
     cat <<EOF
 
-These files were uploaded to $upload_address:
+The following files were uploaded to $upload_address, please ensure they
+are dealt with appropriately:
 
-    ../$tgzfile
-    ../$tgzfile.sha1
-    ../$tgzfile.sha256
-    ../$tgzfile.asc
-    ../$announce.asc
+    $tgzfile
+    $tgzfile.sha1
+    $tgzfile.sha256
+    $tgzfile.asc
+    $announce.asc
 EOF
 fi
 
 cat <<EOF
 
-Release worktree:   $release_clone
+----------------------------------------------------------------------
 EOF
-if [ "$current_branch" != "$new_branch" ]; then
-    cat <<EOF
-Current branch:     $current_branch
-EOF
-fi
+
 if $do_branch; then
     cat <<EOF
-New release branch: $new_branch
+You need to prepare the main repository with a new branch, '$release_branch'.
+That is done directly in the server's bare repository like this:
+
+    git branch $release_branch $orig_HEAD
+
+Two additional release branches have been added to your repository.
+Push them to github, make PRs from them and have them approved:
+
+    $tmp_update_branch
+    $tmp_release_branch
+
+When merging them into the main repository, do it like this:
+
+    git push openssl-git@git.openssl.org:openssl.git \\
+        $tmp_release_branch:$release_branch
+    git push openssl-git@git.openssl.org:openssl.git \\
+        $tmp_update_branch:$update_branch
+    git push openssl-git@git.openssl.org:openssl.git \\
+        $tag
+EOF
+else
+cat <<EOF
+One additional release branch has been added to your repository.
+Push it to github, make a PR from it and have it approved:
+
+    $tmp_release_branch
+
+When merging it into the main repository, do it like this:
+
+    git push openssl-git@git.openssl.org:openssl.git \\
+        $tmp_release_branch:$release_branch
+    git push openssl-git@git.openssl.org:openssl.git \\
+        $tag
 EOF
 fi
 
 cat <<EOF
-======================================================================
+
+----------------------------------------------------------------------
 EOF
 
 cat <<EOF
-If something went wrong and you want to start over, all you need is to
-remove the release worktree:
+
+When everything is done, or if something went wrong and you want to start
+over, simply clean away temporary things left behind:
+
+The release worktree:
 
     rm -rf $release_clone
-
-If a tarball was uploaded, you must also clean that away, or ask you
-kind OpenSSL sysadmin to do so.
 EOF
+
+if $do_branch; then
+    cat <<EOF
+
+The additional release branches:
+
+    git branch -D $tmp_release_branch
+    git branch -D $tmp_update_branch
+EOF
+else
+    cat <<EOF
+
+The temporary release branch:
+
+    git branch -D $tmp_release_branch
+EOF
+fi
 
 exit 0
 
@@ -543,6 +633,7 @@ B<--beta> |
 B<--final> |
 B<--branch> |
 B<--local-user>=I<keyid> |
+B<--reviewer>=I<id> |
 B<--no-upload> |
 B<--no-update> |
 B<--verbose> |
@@ -560,9 +651,12 @@ branch (see L</RELEASE BRANCHES AND TAGS> below for a discussion on those).
 B<release.sh> tries to be smart and figure out the next release if no hints
 are given through options, and will exit with an error in ambiguous cases.
 
-B<release.sh> always clones the current workspace into a sub-directory
-named C<< openssl-I<SERIES>-tmp >>, where C<< I<SERIES> >> is taken from
-the available version information in the source.
+B<release.sh> finishes off with instructions on what to do next.  When
+finishing commands are given, they must be followed exactly.
+
+B<release.sh> leaves behind a clone of the local workspace, as well as one
+or two branches in the local repository.  These will be mentioned and can
+safely be removed after all instructions have been successfully followed.
 
 =head1 OPTIONS
 
@@ -619,6 +713,14 @@ Use I<keyid> as the local user for C<git tag> and for signing with C<gpg>.
 
 If not given, then the default e-mail address' key is used.
 
+=item B<--reviewer>=I<id>
+
+Add I<id> to the set of reviewers for the commits performed by this script.
+Multiple reviewers are allowed.
+
+If no reviewer is given, you will have to run C<addrev> manually, which
+means retagging a release commit manually as well.
+
 =item B<--force>
 
 Force execution.  Precisely, the check that the current branch is C<master>
@@ -652,7 +754,7 @@ B<release.sh> recognises both forms.
 =head1 VERSION AND STATE
 
 With OpenSSL 3.0, all the version and state information is in the file
-F<VERSION>, where the following variables are used and changed:
+F<VERSION.dat>, where the following variables are used and changed:
 
 =over 4
 

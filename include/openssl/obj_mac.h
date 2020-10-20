@@ -1647,6 +1647,26 @@
 #define NID_cmcRA               1132
 #define OBJ_cmcRA               OBJ_id_kp,28L
 
+#define SN_cmcArchive           "cmcArchive"
+#define LN_cmcArchive           "CMC Archive Server"
+#define NID_cmcArchive          1219
+#define OBJ_cmcArchive          OBJ_id_kp,29L
+
+#define SN_id_kp_bgpsec_router          "id-kp-bgpsec-router"
+#define LN_id_kp_bgpsec_router          "BGPsec Router"
+#define NID_id_kp_bgpsec_router         1220
+#define OBJ_id_kp_bgpsec_router         OBJ_id_kp,30L
+
+#define SN_id_kp_BrandIndicatorforMessageIdentification         "id-kp-BrandIndicatorforMessageIdentification"
+#define LN_id_kp_BrandIndicatorforMessageIdentification         "Brand Indicator for Message Identification"
+#define NID_id_kp_BrandIndicatorforMessageIdentification                1221
+#define OBJ_id_kp_BrandIndicatorforMessageIdentification                OBJ_id_kp,31L
+
+#define SN_cmKGA                "cmKGA"
+#define LN_cmKGA                "Certificate Management Key Generation Authority"
+#define NID_cmKGA               1222
+#define OBJ_cmKGA               OBJ_id_kp,32L
+
 #define SN_id_it_caProtEncCert          "id-it-caProtEncCert"
 #define NID_id_it_caProtEncCert         298
 #define OBJ_id_it_caProtEncCert         OBJ_id_it,1L
@@ -1710,6 +1730,18 @@
 #define SN_id_it_suppLangTags           "id-it-suppLangTags"
 #define NID_id_it_suppLangTags          784
 #define OBJ_id_it_suppLangTags          OBJ_id_it,16L
+
+#define SN_id_it_caCerts                "id-it-caCerts"
+#define NID_id_it_caCerts               1223
+#define OBJ_id_it_caCerts               OBJ_id_it,17L
+
+#define SN_id_it_rootCaKeyUpdate                "id-it-rootCaKeyUpdate"
+#define NID_id_it_rootCaKeyUpdate               1224
+#define OBJ_id_it_rootCaKeyUpdate               OBJ_id_it,18L
+
+#define SN_id_it_certReqTemplate                "id-it-certReqTemplate"
+#define NID_id_it_certReqTemplate               1225
+#define OBJ_id_it_certReqTemplate               OBJ_id_it,19L
 
 #define SN_id_regCtrl           "id-regCtrl"
 #define NID_id_regCtrl          313
@@ -4420,6 +4452,11 @@
 #define NID_SNILS               1006
 #define OBJ_SNILS               OBJ_member_body,643L,100L,3L
 
+#define SN_OGRNIP               "OGRNIP"
+#define LN_OGRNIP               "OGRNIP"
+#define NID_OGRNIP              1226
+#define OBJ_OGRNIP              OBJ_member_body,643L,100L,5L
+
 #define SN_subjectSignTool              "subjectSignTool"
 #define LN_subjectSignTool              "Signing Tool of Subject"
 #define NID_subjectSignTool             1007
@@ -4429,6 +4466,41 @@
 #define LN_issuerSignTool               "Signing Tool of Issuer"
 #define NID_issuerSignTool              1008
 #define OBJ_issuerSignTool              OBJ_member_body,643L,100L,112L
+
+#define SN_classSignTool                "classSignTool"
+#define LN_classSignTool                "Class of Signing Tool"
+#define NID_classSignTool               1227
+#define OBJ_classSignTool               OBJ_member_body,643L,100L,113L
+
+#define SN_classSignToolKC1             "classSignToolKC1"
+#define LN_classSignToolKC1             "Class of Signing Tool KC1"
+#define NID_classSignToolKC1            1228
+#define OBJ_classSignToolKC1            OBJ_member_body,643L,100L,113L,1L
+
+#define SN_classSignToolKC2             "classSignToolKC2"
+#define LN_classSignToolKC2             "Class of Signing Tool KC2"
+#define NID_classSignToolKC2            1229
+#define OBJ_classSignToolKC2            OBJ_member_body,643L,100L,113L,2L
+
+#define SN_classSignToolKC3             "classSignToolKC3"
+#define LN_classSignToolKC3             "Class of Signing Tool KC3"
+#define NID_classSignToolKC3            1230
+#define OBJ_classSignToolKC3            OBJ_member_body,643L,100L,113L,3L
+
+#define SN_classSignToolKB1             "classSignToolKB1"
+#define LN_classSignToolKB1             "Class of Signing Tool KB1"
+#define NID_classSignToolKB1            1231
+#define OBJ_classSignToolKB1            OBJ_member_body,643L,100L,113L,4L
+
+#define SN_classSignToolKB2             "classSignToolKB2"
+#define LN_classSignToolKB2             "Class of Signing Tool KB2"
+#define NID_classSignToolKB2            1232
+#define OBJ_classSignToolKB2            OBJ_member_body,643L,100L,113L,5L
+
+#define SN_classSignToolKA1             "classSignToolKA1"
+#define LN_classSignToolKA1             "Class of Signing Tool KA1"
+#define NID_classSignToolKA1            1233
+#define OBJ_classSignToolKA1            OBJ_member_body,643L,100L,113L,6L
 
 #define SN_kuznyechik_ecb               "kuznyechik-ecb"
 #define NID_kuznyechik_ecb              1012
@@ -5101,6 +5173,10 @@
 #define SN_kx_gost              "KxGOST"
 #define LN_kx_gost              "kx-gost"
 #define NID_kx_gost             1045
+
+#define SN_kx_gost18            "KxGOST18"
+#define LN_kx_gost18            "kx-gost18"
+#define NID_kx_gost18           1218
 
 #define SN_kx_any               "KxANY"
 #define LN_kx_any               "kx-any"

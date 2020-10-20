@@ -59,7 +59,6 @@ int ERR_load_ASN1_strings(void);
 #  define ASN1_F_ASN1_ITEM_I2D_BIO                         0
 #  define ASN1_F_ASN1_ITEM_I2D_FP                          0
 #  define ASN1_F_ASN1_ITEM_PACK                            0
-#  define ASN1_F_ASN1_ITEM_SIGN                            0
 #  define ASN1_F_ASN1_ITEM_SIGN_CTX                        0
 #  define ASN1_F_ASN1_ITEM_UNPACK                          0
 #  define ASN1_F_ASN1_ITEM_VERIFY                          0
@@ -83,6 +82,7 @@ int ERR_load_ASN1_strings(void);
 #  define ASN1_F_ASN1_TIME_ADJ                             0
 #  define ASN1_F_ASN1_TYPE_GET_INT_OCTETSTRING             0
 #  define ASN1_F_ASN1_TYPE_GET_OCTETSTRING                 0
+#  define ASN1_F_ASN1_TYPE_GET_OCTETSTRING_INT             0
 #  define ASN1_F_ASN1_UTCTIME_ADJ                          0
 #  define ASN1_F_ASN1_VERIFY                               0
 #  define ASN1_F_B64_READ_ASN1                             0
@@ -244,6 +244,7 @@ int ERR_load_ASN1_strings(void);
 # define ASN1_R_TYPE_NOT_PRIMITIVE                        195
 # define ASN1_R_UNEXPECTED_EOC                            159
 # define ASN1_R_UNIVERSALSTRING_IS_WRONG_LENGTH           215
+# define ASN1_R_UNKNOWN_DIGEST                            229
 # define ASN1_R_UNKNOWN_FORMAT                            160
 # define ASN1_R_UNKNOWN_MESSAGE_DIGEST_ALGORITHM          161
 # define ASN1_R_UNKNOWN_OBJECT_TYPE                       162

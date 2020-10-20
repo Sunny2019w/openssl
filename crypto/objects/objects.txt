@@ -509,6 +509,7 @@ id-qt 1			: id-qt-cps		: Policy Qualifier CPS
 id-qt 2			: id-qt-unotice		: Policy Qualifier User Notice
 id-qt 3			: textNotice
 
+# https://www.iana.org/assignments/smi-numbers/smi-numbers.xhtml#smi-numbers-1.3.6.1.5.5.7.3
 # PKIX key purpose identifiers
 !Cname server-auth
 id-kp 1			: serverAuth		: TLS Web Server Authentication
@@ -541,7 +542,12 @@ id-kp 25                : sendOwner             : Send Owner
 id-kp 26                : sendProxiedOwner      : Send Proxied Owner
 id-kp 27                : cmcCA                 : CMC Certificate Authority
 id-kp 28                : cmcRA                 : CMC Registration Authority
+id-kp 29                : cmcArchive            : CMC Archive Server
+id-kp 30                : id-kp-bgpsec-router 	: BGPsec Router
+id-kp 31                : id-kp-BrandIndicatorforMessageIdentification : Brand Indicator for Message Identification
+id-kp 32                : cmKGA                 : Certificate Management Key Generation Authority
 
+# https://www.iana.org/assignments/smi-numbers/smi-numbers.xhtml#smi-numbers-1.3.6.1.5.5.7.4
 # CMP information types
 id-it 1			: id-it-caProtEncCert
 id-it 2			: id-it-signKeyPairTypes
@@ -561,6 +567,9 @@ id-it 13		: id-it-implicitConfirm
 id-it 14		: id-it-confirmWaitTime
 id-it 15		: id-it-origPKIMessage
 id-it 16		: id-it-suppLangTags
+id-it 17		: id-it-caCerts
+id-it 18		: id-it-rootCaKeyUpdate
+id-it 19		: id-it-certReqTemplate
 
 # CRMF registration
 id-pkip 1		: id-regCtrl
@@ -1397,8 +1406,16 @@ id-tc26-gost-28147-constants 1	: id-tc26-gost-28147-param-Z : GOST 28147-89 TC26
 member-body 643 3 131 1 1	: INN	: INN
 member-body 643 100 1		: OGRN	: OGRN
 member-body 643 100 3		: SNILS	: SNILS
+member-body 643 100 5		: OGRNIP	: OGRNIP
 member-body 643 100 111	: subjectSignTool	: Signing Tool of Subject
 member-body 643 100 112	: issuerSignTool	: Signing Tool of Issuer
+member-body 643 100 113  : classSignTool   : Class of Signing Tool
+member-body 643 100 113 1 : classSignToolKC1 : Class of Signing Tool KC1
+member-body 643 100 113 2 : classSignToolKC2 : Class of Signing Tool KC2
+member-body 643 100 113 3 : classSignToolKC3 : Class of Signing Tool KC3
+member-body 643 100 113 4 : classSignToolKB1 : Class of Signing Tool KB1
+member-body 643 100 113 5 : classSignToolKB2 : Class of Signing Tool KB2
+member-body 643 100 113 6 : classSignToolKA1 : Class of Signing Tool KA1
 
 #GOST R34.13-2015 Grasshopper "Kuznechik"
 			: kuznyechik-ecb
@@ -1648,6 +1665,7 @@ id-pkinit 5                     : pkInitKDC             : Signing KDC Response
                             : KxPSK        : kx-psk
                             : KxSRP        : kx-srp
                             : KxGOST       : kx-gost
+                            : KxGOST18     : kx-gost18
                             : KxANY        : kx-any
 
 # NIDs for cipher authentication

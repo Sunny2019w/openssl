@@ -12,10 +12,6 @@
 #include "statem_local.h"
 #include "internal/cryptlib.h"
 
-DEFINE_STACK_OF(SRTP_PROTECTION_PROFILE)
-DEFINE_STACK_OF(OCSP_RESPID)
-DEFINE_STACK_OF(X509_EXTENSION)
-
 #define COOKIE_STATE_FORMAT_VERSION     0
 
 /*
@@ -715,21 +711,6 @@ int tls_parse_ctos_key_share(SSL *s, PACKET *pkt, unsigned int context, X509 *x,
             return 0;
         }
 
-        /*
-         * TODO(3.0) Remove this when EVP_PKEY_get1_tls_encodedpoint()
-         * knows how to get a key from an encoded point with the help of
-         * a OSSL_SERIALIZER deserializer.  We know that EVP_PKEY_get0()
-         * downgrades an EVP_PKEY to contain a legacy key.
-         *
-         * THIS IS TEMPORARY
-         */
-        EVP_PKEY_get0(s->s3.peer_tmp);
-        if (EVP_PKEY_id(s->s3.peer_tmp) == EVP_PKEY_NONE) {
-            SSLfatal(s, SSL_AD_INTERNAL_ERROR, SSL_F_TLS_PARSE_CTOS_KEY_SHARE,
-                     ERR_R_INTERNAL_ERROR);
-            return 0;
-        }
-
         s->s3.group_id = group_id;
 
         if (!EVP_PKEY_set1_tls_encodedpoint(s->s3.peer_tmp,
@@ -786,10 +767,10 @@ int tls_parse_ctos_cookie(SSL *s, PACKET *pkt, unsigned int context, X509 *x,
 
     /* Verify the HMAC of the cookie */
     hctx = EVP_MD_CTX_create();
-    pkey = EVP_PKEY_new_raw_private_key(EVP_PKEY_HMAC, NULL,
-                                        s->session_ctx->ext.cookie_hmac_key,
-                                        sizeof(s->session_ctx->ext
-                                               .cookie_hmac_key));
+    pkey = EVP_PKEY_new_raw_private_key_ex(s->ctx->libctx, "HMAC",
+                                           s->ctx->propq,
+                                           s->session_ctx->ext.cookie_hmac_key,
+                                           sizeof(s->session_ctx->ext.cookie_hmac_key));
     if (hctx == NULL || pkey == NULL) {
         EVP_MD_CTX_free(hctx);
         EVP_PKEY_free(pkey);
@@ -799,8 +780,8 @@ int tls_parse_ctos_cookie(SSL *s, PACKET *pkt, unsigned int context, X509 *x,
     }
 
     hmaclen = SHA256_DIGEST_LENGTH;
-    if (EVP_DigestSignInit_ex(hctx, NULL, "SHA2-256", s->ctx->propq, pkey,
-                              s->ctx->libctx) <= 0
+    if (EVP_DigestSignInit_ex(hctx, NULL, "SHA2-256", s->ctx->libctx,
+                              s->ctx->propq, pkey) <= 0
             || EVP_DigestSign(hctx, hmac, &hmaclen, data,
                               rawlen - SHA256_DIGEST_LENGTH) <= 0
             || hmaclen != SHA256_DIGEST_LENGTH) {
@@ -1439,6 +1420,7 @@ EXT_RETURN tls_construct_stoc_supported_groups(SSL *s, WPACKET *pkt,
 {
     const uint16_t *groups;
     size_t numgroups, i, first = 1;
+    int version;
 
     /* s->s3.group_id is non zero if we accepted a key_share */
     if (s->s3.group_id == 0)
@@ -1453,10 +1435,11 @@ EXT_RETURN tls_construct_stoc_supported_groups(SSL *s, WPACKET *pkt,
     }
 
     /* Copy group ID if supported */
+    version = SSL_version(s);
     for (i = 0; i < numgroups; i++) {
         uint16_t group = groups[i];
 
-        if (tls_valid_group(s, group, SSL_version(s))
+        if (tls_valid_group(s, group, version, version)
                 && tls_group_allowed(s, group, SSL_SECOP_CURVE_SUPPORTED)) {
             if (first) {
                 /*
@@ -1648,7 +1631,9 @@ EXT_RETURN tls_construct_stoc_etm(SSL *s, WPACKET *pkt, unsigned int context,
     if (s->s3.tmp.new_cipher->algorithm_mac == SSL_AEAD
         || s->s3.tmp.new_cipher->algorithm_enc == SSL_RC4
         || s->s3.tmp.new_cipher->algorithm_enc == SSL_eGOST2814789CNT
-        || s->s3.tmp.new_cipher->algorithm_enc == SSL_eGOST2814789CNT12) {
+        || s->s3.tmp.new_cipher->algorithm_enc == SSL_eGOST2814789CNT12
+        || s->s3.tmp.new_cipher->algorithm_enc == SSL_MAGMA
+        || s->s3.tmp.new_cipher->algorithm_enc == SSL_KUZNYECHIK) {
         s->ext.use_etm = 0;
         return EXT_RETURN_NOT_SENT;
     }
@@ -1711,6 +1696,7 @@ EXT_RETURN tls_construct_stoc_key_share(SSL *s, WPACKET *pkt,
     unsigned char *encodedPoint;
     size_t encoded_pt_len = 0;
     EVP_PKEY *ckey = s->s3.peer_tmp, *skey = NULL;
+    const TLS_GROUP_INFO *ginf = NULL;
 
     if (s->hello_retry_request == SSL_HRR_PENDING) {
         if (ckey != NULL) {
@@ -1748,52 +1734,92 @@ EXT_RETURN tls_construct_stoc_key_share(SSL *s, WPACKET *pkt,
         return EXT_RETURN_FAIL;
     }
 
-    skey = ssl_generate_pkey(s, ckey);
-    if (skey == NULL) {
-        SSLfatal(s, SSL_AD_INTERNAL_ERROR, SSL_F_TLS_CONSTRUCT_STOC_KEY_SHARE,
-                 ERR_R_MALLOC_FAILURE);
+    if ((ginf = tls1_group_id_lookup(s->ctx, s->s3.group_id)) == NULL) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR,
+                 SSL_F_TLS_CONSTRUCT_STOC_KEY_SHARE, ERR_R_INTERNAL_ERROR);
         return EXT_RETURN_FAIL;
     }
 
-    /*
-     * TODO(3.0) Remove this when EVP_PKEY_get1_tls_encodedpoint()
-     * knows how to get a key from an encoded point with the help of
-     * a OSSL_SERIALIZER deserializer.  We know that EVP_PKEY_get0()
-     * downgrades an EVP_PKEY to contain a legacy key.
-     *
-     * THIS IS TEMPORARY
-     */
-    EVP_PKEY_get0(skey);
-    if (EVP_PKEY_id(skey) == EVP_PKEY_NONE) {
-        SSLfatal(s, SSL_AD_INTERNAL_ERROR, SSL_F_TLS_CONSTRUCT_STOC_KEY_SHARE,
-                 ERR_R_INTERNAL_ERROR);
-        return EXT_RETURN_FAIL;
-    }
+    if (!ginf->is_kem) {
+        /* Regular KEX */
+        skey = ssl_generate_pkey(s, ckey);
+        if (skey == NULL) {
+            SSLfatal(s, SSL_AD_INTERNAL_ERROR,
+                     SSL_F_TLS_CONSTRUCT_STOC_KEY_SHARE,
+                     ERR_R_MALLOC_FAILURE);
+            return EXT_RETURN_FAIL;
+        }
 
-    /* Generate encoding of server key */
-    encoded_pt_len = EVP_PKEY_get1_tls_encodedpoint(skey, &encodedPoint);
-    if (encoded_pt_len == 0) {
-        SSLfatal(s, SSL_AD_INTERNAL_ERROR, SSL_F_TLS_CONSTRUCT_STOC_KEY_SHARE,
-                 ERR_R_EC_LIB);
-        EVP_PKEY_free(skey);
-        return EXT_RETURN_FAIL;
-    }
+        /* Generate encoding of server key */
+        encoded_pt_len = EVP_PKEY_get1_tls_encodedpoint(skey, &encodedPoint);
+        if (encoded_pt_len == 0) {
+            SSLfatal(s, SSL_AD_INTERNAL_ERROR,
+                     SSL_F_TLS_CONSTRUCT_STOC_KEY_SHARE,
+                     ERR_R_EC_LIB);
+            EVP_PKEY_free(skey);
+            return EXT_RETURN_FAIL;
+        }
 
-    if (!WPACKET_sub_memcpy_u16(pkt, encodedPoint, encoded_pt_len)
-            || !WPACKET_close(pkt)) {
-        SSLfatal(s, SSL_AD_INTERNAL_ERROR, SSL_F_TLS_CONSTRUCT_STOC_KEY_SHARE,
-                 ERR_R_INTERNAL_ERROR);
-        EVP_PKEY_free(skey);
+        if (!WPACKET_sub_memcpy_u16(pkt, encodedPoint, encoded_pt_len)
+                || !WPACKET_close(pkt)) {
+            SSLfatal(s, SSL_AD_INTERNAL_ERROR,
+                     SSL_F_TLS_CONSTRUCT_STOC_KEY_SHARE,
+                     ERR_R_INTERNAL_ERROR);
+            EVP_PKEY_free(skey);
+            OPENSSL_free(encodedPoint);
+            return EXT_RETURN_FAIL;
+        }
         OPENSSL_free(encodedPoint);
-        return EXT_RETURN_FAIL;
-    }
-    OPENSSL_free(encodedPoint);
 
-    /* This causes the crypto state to be updated based on the derived keys */
-    s->s3.tmp.pkey = skey;
-    if (ssl_derive(s, skey, ckey, 1) == 0) {
-        /* SSLfatal() already called */
-        return EXT_RETURN_FAIL;
+        /*
+         * This causes the crypto state to be updated based on the derived keys
+         */
+        s->s3.tmp.pkey = skey;
+        if (ssl_derive(s, skey, ckey, 1) == 0) {
+            /* SSLfatal() already called */
+            return EXT_RETURN_FAIL;
+        }
+    } else {
+        /* KEM mode */
+        unsigned char *ct = NULL;
+        size_t ctlen = 0;
+
+        /*
+         * This does not update the crypto state.
+         *
+         * The generated pms is stored in `s->s3.tmp.pms` to be later used via
+         * ssl_gensecret().
+         */
+        if (ssl_encapsulate(s, ckey, &ct, &ctlen, 0) == 0) {
+            /* SSLfatal() already called */
+            return EXT_RETURN_FAIL;
+        }
+
+        if (ctlen == 0) {
+            SSLfatal(s, SSL_AD_INTERNAL_ERROR,
+                     SSL_F_TLS_CONSTRUCT_STOC_KEY_SHARE,
+                     ERR_R_INTERNAL_ERROR);
+            OPENSSL_free(ct);
+            return EXT_RETURN_FAIL;
+        }
+
+        if (!WPACKET_sub_memcpy_u16(pkt, ct, ctlen)
+                || !WPACKET_close(pkt)) {
+            SSLfatal(s, SSL_AD_INTERNAL_ERROR,
+                     SSL_F_TLS_CONSTRUCT_STOC_KEY_SHARE,
+                     ERR_R_INTERNAL_ERROR);
+            OPENSSL_free(ct);
+            return EXT_RETURN_FAIL;
+        }
+        OPENSSL_free(ct);
+
+        /*
+         * This causes the crypto state to be updated based on the generated pms
+         */
+        if (ssl_gensecret(s, s->s3.tmp.pms, s->s3.tmp.pmslen) == 0) {
+            /* SSLfatal() already called */
+            return EXT_RETURN_FAIL;
+        }
     }
     return EXT_RETURN_SENT;
 #else
@@ -1889,18 +1915,18 @@ EXT_RETURN tls_construct_stoc_cookie(SSL *s, WPACKET *pkt, unsigned int context,
 
     /* HMAC the cookie */
     hctx = EVP_MD_CTX_create();
-    pkey = EVP_PKEY_new_raw_private_key(EVP_PKEY_HMAC, NULL,
-                                        s->session_ctx->ext.cookie_hmac_key,
-                                        sizeof(s->session_ctx->ext
-                                               .cookie_hmac_key));
+    pkey = EVP_PKEY_new_raw_private_key_ex(s->ctx->libctx, "HMAC",
+                                           s->ctx->propq,
+                                           s->session_ctx->ext.cookie_hmac_key,
+                                           sizeof(s->session_ctx->ext.cookie_hmac_key));
     if (hctx == NULL || pkey == NULL) {
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, SSL_F_TLS_CONSTRUCT_STOC_COOKIE,
                  ERR_R_MALLOC_FAILURE);
         goto err;
     }
 
-    if (EVP_DigestSignInit_ex(hctx, NULL, "SHA2-256", s->ctx->propq, pkey,
-                              s->ctx->libctx) <= 0
+    if (EVP_DigestSignInit_ex(hctx, NULL, "SHA2-256", s->ctx->libctx,
+                              s->ctx->propq, pkey) <= 0
             || EVP_DigestSign(hctx, hmac, &hmaclen, cookie,
                               totcookielen) <= 0) {
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, SSL_F_TLS_CONSTRUCT_STOC_COOKIE,

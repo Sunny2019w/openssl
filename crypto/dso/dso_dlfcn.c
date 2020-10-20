@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2018 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 2000-2020 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the Apache License 2.0 (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -19,8 +19,6 @@
 #include "dso_local.h"
 #include "e_os.h"
 
-DEFINE_STACK_OF(void)
-
 #ifdef DSO_DLFCN
 
 # ifdef HAVE_DLFCN_H
@@ -32,7 +30,7 @@ DEFINE_STACK_OF(void)
 #  if defined(__SCO_VERSION__) || defined(_SCO_ELF) || \
      (defined(__osf__) && !defined(RTLD_NEXT))     || \
      (defined(__OpenBSD__) && !defined(RTLD_SELF)) || \
-        defined(__ANDROID__)
+     defined(__ANDROID__) || defined(__TANDEM)
 #   undef HAVE_DLINFO
 #  endif
 # endif

@@ -10,18 +10,30 @@ openssl-list - list algorithms and features
 B<openssl list>
 [B<-help>]
 [B<-verbose>]
+[B<-select> I<name>]
 [B<-1>]
 [B<-commands>]
 [B<-digest-commands>]
 [B<-digest-algorithms>]
 [B<-kdf-algorithms>]
 [B<-mac-algorithms>]
+[B<-random-generators>]
 [B<-cipher-commands>]
 [B<-cipher-algorithms>]
+[B<-encoders>]
+[B<-decoders>]
+[B<-key-managers>]
+[B<-key-exchange-algorithms>]
+[B<-kem-algorithms>]
+[B<-signature-algorithms>]
+[B<-asymcipher-algorithms>]
 [B<-public-key-algorithms>]
 [B<-public-key-methods>]
-[B<-engines>]
-[B<-disabled>]
+[B<-providers>]
+{- output_off() if $disabled{"deprecated-3.0"}; ""
+-}[B<-engines>]
+{- output_on() if $disabled{"deprecated-3.0"}; ""
+-}[B<-disabled>]
 [B<-objects>]
 [B<-options> I<command>]
 {- $OpenSSL::safe::opt_provider_synopsis -}
@@ -43,6 +55,10 @@ Display a usage message.
 
 Displays extra information.
 The options below where verbosity applies say a bit more about what that means.
+
+=item B<-select> I<name>
+
+Only list algorithms that match this name.
 
 =item B<-1>
 
@@ -73,19 +89,76 @@ displayed.
 In verbose mode, the algorithms provided by a provider will get additional
 information on what parameters each implementation supports.
 
+=item B<-random-generators>
+
+Display a list of random number generators.
+See L</Display of algorithm names> for a description of how names are
+displayed.
+
+=item B<-encoders>
+
+Display a list of encoders.
+See L</Display of algorithm names> for a description of how names are
+displayed.
+
+In verbose mode, the algorithms provided by a provider will get additional
+information on what parameters each implementation supports.
+
+=item B<-decoders>
+
+Display a list of decoders.
+See L</Display of algorithm names> for a description of how names are
+displayed.
+
+In verbose mode, the algorithms provided by a provider will get additional
+information on what parameters each implementation supports.
+
 =item B<-public-key-algorithms>
 
 Display a list of public key algorithms, with each algorithm as
 a block of multiple lines, all but the first are indented.
+The options B<key-exchange-algorithms>, B<kem-algorithms>,
+B<signature-algorithms>, and B<asymcipher-algorithms> will display similar info.
 
 =item B<-public-key-methods>
 
-Display a list of public key method OIDs.
+Display a list of public key methods.
+
+=item B<-key-managers>
+
+Display a list of key managers.
+
+=item B<-key-exchange-algorithms>
+
+Display a list of key exchange algorithms.
+
+=item B<-kem-algorithms>
+
+Display a list of key encapsulation algorithms.
+
+=item B<-signature-algorithms>
+
+Display a list of signature algorithms.
+
+=item B<-asymcipher-algorithms>
+
+Display a list of asymmetric cipher algorithms.
+
+=item B<-providers>
+
+Display a list of all loaded providers with their names, version and status.
+
+In verbose mode, the full version and all provider parameters will additionally
+be displayed.
+
 
 =item B<-engines>
 
+This option is deprecated.
+
 Display a list of loaded engines.
 
+{- output_on() if $disabled{"deprecated-3.0"}; "" -}
 =item B<-disabled>
 
 Display a list of disabled features, those that were compiled out
@@ -134,6 +207,10 @@ or like this if it's labeled with multiple names:
 In both cases, C<bar> is the name of the provider.
 
 =back
+
+=head1 HISTORY
+
+The B<-engines> option was deprecated in OpenSSL 3.0.
 
 =head1 COPYRIGHT
 

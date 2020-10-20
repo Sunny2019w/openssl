@@ -17,7 +17,7 @@
  * implementations alike.
  */
 
-int ffc_params_fromdata(FFC_PARAMS *ffc, const OSSL_PARAM params[])
+int ossl_ffc_params_fromdata(FFC_PARAMS *ffc, const OSSL_PARAM params[])
 {
     const OSSL_PARAM *prm;
     const OSSL_PARAM *param_p, *param_q, *param_g;
@@ -27,7 +27,7 @@ int ffc_params_fromdata(FFC_PARAMS *ffc, const OSSL_PARAM params[])
     if (ffc == NULL)
         return 0;
 
-    prm  = OSSL_PARAM_locate_const(params, OSSL_PKEY_PARAM_FFC_GROUP);
+    prm  = OSSL_PARAM_locate_const(params, OSSL_PKEY_PARAM_GROUP_NAME);
     if (prm != NULL) {
         if (prm->data_type != OSSL_PARAM_UTF8_STRING)
             goto err;
@@ -36,7 +36,7 @@ int ffc_params_fromdata(FFC_PARAMS *ffc, const OSSL_PARAM params[])
          * In a no-dh build we just go straight to err because we have no
          * support for this.
          */
-        if (!ffc_set_group_pqg(ffc, prm->data))
+        if (!ossl_ffc_set_group_pqg(ffc, prm->data))
 #endif
             goto err;
     }
@@ -75,11 +75,33 @@ int ffc_params_fromdata(FFC_PARAMS *ffc, const OSSL_PARAM params[])
     if (prm != NULL) {
         if (prm->data_type != OSSL_PARAM_OCTET_STRING)
             goto err;
-        if (!ffc_params_set_seed(ffc, prm->data, prm->data_size))
+        if (!ossl_ffc_params_set_seed(ffc, prm->data, prm->data_size))
             goto err;
     }
-    ffc_params_set0_pqg(ffc, p, q, g);
-    ffc_params_set0_j(ffc, j);
+    prm  = OSSL_PARAM_locate_const(params, OSSL_PKEY_PARAM_FFC_VALIDATE_TYPE);
+    if (prm != NULL) {
+        if (prm->data_type != OSSL_PARAM_UTF8_STRING)
+            goto err;
+        ossl_ffc_params_set_flags(ffc, ossl_ffc_params_flags_from_name(prm->data));
+    }
+    prm = OSSL_PARAM_locate_const(params, OSSL_PKEY_PARAM_FFC_DIGEST);
+    if (prm != NULL) {
+        const OSSL_PARAM *p1;
+        const char *props = NULL;
+
+        if (prm->data_type != OSSL_PARAM_UTF8_STRING)
+            goto err;
+        p1 = OSSL_PARAM_locate_const(params, OSSL_PKEY_PARAM_FFC_DIGEST_PROPS);
+        if (p1 != NULL) {
+            if (p1->data_type != OSSL_PARAM_UTF8_STRING)
+                goto err;
+        }
+        if (!ossl_ffc_set_digest(ffc, prm->data, props))
+            goto err;
+    }
+
+    ossl_ffc_params_set0_pqg(ffc, p, q, g);
+    ossl_ffc_params_set0_j(ffc, j);
     return 1;
 
  err:

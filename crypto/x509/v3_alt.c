@@ -1,5 +1,5 @@
 /*
- * Copyright 1999-2017 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 1999-2020 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the Apache License 2.0 (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -13,9 +13,6 @@
 #include <openssl/x509v3.h>
 #include <openssl/bio.h>
 #include "ext_dat.h"
-
-DEFINE_STACK_OF(CONF_VALUE)
-DEFINE_STACK_OF(GENERAL_NAME)
 
 static GENERAL_NAMES *v2i_subject_alt(X509V3_EXT_METHOD *method,
                                       X509V3_CTX *ctx,
@@ -128,7 +125,7 @@ STACK_OF(CONF_VALUE) *i2v_GENERAL_NAME(X509V3_EXT_METHOD *method,
                 BIO_snprintf(othername, sizeof(othername), "othername: %s:",
                              oline);
             else
-                strncpy(othername, "othername:", sizeof(othername));
+                OPENSSL_strlcpy(othername, "othername:", sizeof(othername));
 
             /* check if the value is something printable */
             if (gen->d.otherName->value->type == V_ASN1_IA5STRING) {

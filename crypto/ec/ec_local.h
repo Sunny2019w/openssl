@@ -31,6 +31,10 @@
 /* Curve does not support signing operations */
 #define EC_FLAGS_NO_SIGN        0x4
 
+#ifdef OPENSSL_NO_DEPRECATED_3_0
+typedef struct ec_method_st EC_METHOD;
+#endif
+
 /*
  * Structure details are not part of the exported interface, so all this may
  * change in future versions.
@@ -209,6 +213,8 @@ struct ec_group_st {
     BIGNUM *order, *cofactor;
     int curve_name;             /* optional NID for named curve */
     int asn1_flag;              /* flag to control the asn1 encoding */
+    int decoded_from_explicit_params; /* set if decoded from explicit
+                                       * curve parameters encoding */
     point_conversion_form_t asn1_form;
     unsigned char *seed;        /* optional seed for parameters (appears in
                                  * ASN1) */
@@ -269,7 +275,8 @@ struct ec_group_st {
         EC_PRE_COMP *ec;
     } pre_comp;
 
-    OPENSSL_CTX *libctx;
+    OSSL_LIB_CTX *libctx;
+    char *propq;
 };
 
 #define SETPRECOMP(g, type, pre) \
@@ -292,7 +299,8 @@ struct ec_key_st {
     CRYPTO_EX_DATA ex_data;
 #endif
     CRYPTO_RWLOCK *lock;
-    OPENSSL_CTX *libctx;
+    OSSL_LIB_CTX *libctx;
+    char *propq;
 
     /* Provider data */
     size_t dirty_cnt; /* If any key material changes, increment this */
@@ -585,6 +593,17 @@ void ec_GFp_nistp_recode_scalar_bits(unsigned char *sign,
 #endif
 int ec_group_simple_order_bits(const EC_GROUP *group);
 
+/**
+ *  Creates a new EC_GROUP object
+ *  \param   libctx The associated library context or NULL for the default
+ *                  library context
+ *  \param   propq  Any property query string
+ *  \param   meth   EC_METHOD to use
+ *  \return  newly created EC_GROUP object or NULL in case of an error.
+ */
+EC_GROUP *ec_group_new_ex(OSSL_LIB_CTX *libctx, const char *propq,
+                          const EC_METHOD *meth);
+
 #ifdef ECP_NISTZ256_ASM
 /** Returns GFp methods using montgomery multiplication, with x86-64 optimized
  * P256. See http://eprint.iacr.org/2013/816.
@@ -638,7 +657,8 @@ struct ec_key_method_st {
 
 #define EC_KEY_METHOD_DYNAMIC   1
 
-EC_KEY *ec_key_new_method_int(OPENSSL_CTX *libctx, ENGINE *engine);
+EC_KEY *ec_key_new_method_int(OSSL_LIB_CTX *libctx, const char *propq,
+                              ENGINE *engine);
 
 int ossl_ec_key_gen(EC_KEY *eckey);
 int ossl_ecdh_compute_key(unsigned char **pout, size_t *poutlen,

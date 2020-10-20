@@ -35,6 +35,7 @@
 # include "internal/refcount.h"
 # include "internal/tsan_assist.h"
 # include "internal/bio.h"
+# include "internal/ktls.h"
 
 # ifdef OPENSSL_BUILD_SHLIBSSL
 #  undef OPENSSL_EXTERN
@@ -180,6 +181,8 @@
 # define SSL_kRSAPSK             0x00000040U
 # define SSL_kECDHEPSK           0x00000080U
 # define SSL_kDHEPSK             0x00000100U
+/* GOST KDF key exchange, draft-smyshlyaev-tls12-gost-suites */
+# define SSL_kGOST18             0x00000200U
 
 /* all PSK */
 
@@ -234,6 +237,8 @@
 # define SSL_CHACHA20POLY1305    0x00080000U
 # define SSL_ARIA128GCM          0x00100000U
 # define SSL_ARIA256GCM          0x00200000U
+# define SSL_MAGMA               0x00400000U
+# define SSL_KUZNYECHIK          0x00800000U
 
 # define SSL_AESGCM              (SSL_AES128GCM | SSL_AES256GCM)
 # define SSL_AESCCM              (SSL_AES128CCM | SSL_AES256CCM | SSL_AES128CCM8 | SSL_AES256CCM8)
@@ -242,6 +247,9 @@
 # define SSL_CHACHA20            (SSL_CHACHA20POLY1305)
 # define SSL_ARIAGCM             (SSL_ARIA128GCM | SSL_ARIA256GCM)
 # define SSL_ARIA                (SSL_ARIAGCM)
+# define SSL_CBC                 (SSL_DES | SSL_3DES | SSL_RC2 | SSL_IDEA \
+                                  | SSL_AES128 | SSL_AES256 | SSL_CAMELLIA128 \
+                                  | SSL_CAMELLIA256 | SSL_SEED)
 
 /* Bits for algorithm_mac (symmetric authentication) */
 
@@ -256,6 +264,8 @@
 # define SSL_GOST12_256          0x00000080U
 # define SSL_GOST89MAC12         0x00000100U
 # define SSL_GOST12_512          0x00000200U
+# define SSL_MAGMAOMAC           0x00000400U
+# define SSL_KUZNYECHIKOMAC      0x00000800U
 
 /*
  * When adding new digest in the ssl_ciph.c and increment SSL_MD_NUM_IDX make
@@ -274,7 +284,9 @@
 # define SSL_MD_MD5_SHA1_IDX 9
 # define SSL_MD_SHA224_IDX 10
 # define SSL_MD_SHA512_IDX 11
-# define SSL_MAX_DIGEST 12
+# define SSL_MD_MAGMAOMAC_IDX 12
+# define SSL_MD_KUZNYECHIKOMAC_IDX 13
+# define SSL_MAX_DIGEST 14
 
 #define SSL_MD_NUM_IDX  SSL_MAX_DIGEST
 
@@ -305,6 +317,11 @@
  * goes into algorithm2)
  */
 # define TLS1_STREAM_MAC 0x10000
+/*
+ * TLSTREE cipher/mac key derivation from draft-smyshlyaev-tls12-gost-suites
+ * (currently this also  goes into algorithm2)
+ */
+# define TLS1_TLSTREE 0x20000
 
 # define SSL_STRONG_MASK         0x0000001FU
 # define SSL_DEFAULT_MASK        0X00000020U
@@ -413,7 +430,9 @@
 # define SSL_ENC_CHACHA_IDX      19
 # define SSL_ENC_ARIA128GCM_IDX  20
 # define SSL_ENC_ARIA256GCM_IDX  21
-# define SSL_ENC_NUM_IDX         22
+# define SSL_ENC_MAGMA_IDX       22
+# define SSL_ENC_KUZNYECHIK_IDX  23
+# define SSL_ENC_NUM_IDX         24
 
 /*-
  * SSL_kRSA <- RSA_ENC
@@ -505,7 +524,7 @@ struct ssl_method_st {
  * Matches the length of PSK_MAX_PSK_LEN. We keep it the same value for
  * consistency, even in the event of OPENSSL_NO_PSK being defined.
  */
-# define TLS13_MAX_RESUMPTION_PSK_LENGTH      256
+# define TLS13_MAX_RESUMPTION_PSK_LENGTH      512
 
 /*-
  * Lets make this into an ASN.1 type structure as follows
@@ -789,8 +808,31 @@ int ssl_hmac_final(SSL_HMAC *ctx, unsigned char *md, size_t *len,
                    size_t max_size);
 size_t ssl_hmac_size(const SSL_HMAC *ctx);
 
+typedef struct tls_group_info_st {
+    char *tlsname;           /* Curve Name as in TLS specs */
+    char *realname;          /* Curve Name according to provider */
+    char *algorithm;         /* Algorithm name to fetch */
+    unsigned int secbits;    /* Bits of security (from SP800-57) */
+    uint16_t group_id;       /* Group ID */
+    int mintls;              /* Minimum TLS version, -1 unsupported */
+    int maxtls;              /* Maximum TLS version (or 0 for undefined) */
+    int mindtls;             /* Minimum DTLS version, -1 unsupported */
+    int maxdtls;             /* Maximum DTLS version (or 0 for undefined) */
+    char is_kem;             /* Mode for this Group: 0 is KEX, 1 is KEM */
+} TLS_GROUP_INFO;
+
+/* flags values */
+# define TLS_GROUP_TYPE             0x0000000FU /* Mask for group type */
+# define TLS_GROUP_CURVE_PRIME      0x00000001U
+# define TLS_GROUP_CURVE_CHAR2      0x00000002U
+# define TLS_GROUP_CURVE_CUSTOM     0x00000004U
+# define TLS_GROUP_FFDHE            0x00000008U
+# define TLS_GROUP_ONLY_FOR_TLS1_3  0x00000010U
+
+# define TLS_GROUP_FFDHE_FOR_TLS1_3 (TLS_GROUP_FFDHE|TLS_GROUP_ONLY_FOR_TLS1_3)
+
 struct ssl_ctx_st {
-    OPENSSL_CTX *libctx;
+    OSSL_LIB_CTX *libctx;
 
     const SSL_METHOD *method;
     STACK_OF(SSL_CIPHER) *cipher_list;
@@ -1139,6 +1181,13 @@ struct ssl_ctx_st {
     const EVP_CIPHER *ssl_cipher_methods[SSL_ENC_NUM_IDX];
     const EVP_MD *ssl_digest_methods[SSL_MD_NUM_IDX];
     size_t ssl_mac_secret_size[SSL_MD_NUM_IDX];
+
+    /* Cache of all sigalgs we know and whether they are available or not */
+    struct sigalg_lookup_st *sigalg_lookup_cache;
+
+    TLS_GROUP_INFO *group_list;
+    size_t group_list_len;
+    size_t group_list_max_len;
 };
 
 typedef struct cert_pkey_st CERT_PKEY;
@@ -1758,25 +1807,9 @@ typedef struct sigalg_lookup_st {
     int sigandhash;
     /* Required public key curve (ECDSA only) */
     int curve;
+    /* Whether this signature algorithm is actually available for use */
+    int enabled;
 } SIGALG_LOOKUP;
-
-typedef struct tls_group_info_st {
-    int nid;                    /* Curve NID */
-    const char *keytype;
-    int secbits;                /* Bits of security (from SP800-57) */
-    uint32_t flags;             /* For group type and applicable TLS versions */
-    uint16_t group_id;          /* Group ID */
-} TLS_GROUP_INFO;
-
-/* flags values */
-# define TLS_GROUP_TYPE             0x0000000FU /* Mask for group type */
-# define TLS_GROUP_CURVE_PRIME      0x00000001U
-# define TLS_GROUP_CURVE_CHAR2      0x00000002U
-# define TLS_GROUP_CURVE_CUSTOM     0x00000004U
-# define TLS_GROUP_FFDHE            0x00000008U
-# define TLS_GROUP_ONLY_FOR_TLS1_3  0x00000010U
-
-# define TLS_GROUP_FFDHE_FOR_TLS1_3 (TLS_GROUP_FFDHE|TLS_GROUP_ONLY_FOR_TLS1_3)
 
 /*
  * Structure containing table entry of certificate info corresponding to
@@ -2038,7 +2071,7 @@ typedef struct cert_st {
  * of a mess of functions, but hell, think of it as an opaque structure :-)
  */
 typedef struct ssl3_enc_method {
-    int (*enc) (SSL *, SSL3_RECORD *, size_t, int);
+    int (*enc) (SSL *, SSL3_RECORD *, size_t, int, SSL_MAC_BUF *, size_t);
     int (*mac) (SSL *, SSL3_RECORD *, unsigned char *, int);
     int (*setup_key_block) (SSL *);
     int (*generate_master_secret) (SSL *, unsigned char *, unsigned char *,
@@ -2414,13 +2447,22 @@ __owur STACK_OF(SSL_CIPHER) *ssl_get_ciphers_by_id(SSL *s);
 __owur int ssl_x509err2alert(int type);
 void ssl_sort_cipher_list(void);
 int ssl_load_ciphers(SSL_CTX *ctx);
+__owur int ssl_setup_sig_algs(SSL_CTX *ctx);
+int ssl_load_groups(SSL_CTX *ctx);
 __owur int ssl_fill_hello_random(SSL *s, int server, unsigned char *field,
                                  size_t len, DOWNGRADE dgrd);
 __owur int ssl_generate_master_secret(SSL *s, unsigned char *pms, size_t pmslen,
                                       int free_pms);
 __owur EVP_PKEY *ssl_generate_pkey(SSL *s, EVP_PKEY *pm);
+__owur int ssl_gensecret(SSL *s, unsigned char *pms, size_t pmslen);
 __owur int ssl_derive(SSL *s, EVP_PKEY *privkey, EVP_PKEY *pubkey,
                       int genmaster);
+__owur int ssl_decapsulate(SSL *s, EVP_PKEY *privkey,
+                           const unsigned char *ct, size_t ctlen,
+                           int gensecret);
+__owur int ssl_encapsulate(SSL *s, EVP_PKEY *pubkey,
+                           unsigned char **ctp, size_t *ctlenp,
+                           int gensecret);
 __owur EVP_PKEY *ssl_dh_to_pkey(DH *dh);
 __owur unsigned int ssl_get_max_send_fragment(const SSL *ssl);
 __owur unsigned int ssl_get_split_send_fragment(const SSL *ssl);
@@ -2602,16 +2644,17 @@ __owur int ssl_check_srvr_ecc_cert_and_alg(X509 *x, SSL *s);
 
 SSL_COMP *ssl3_comp_find(STACK_OF(SSL_COMP) *sk, int n);
 
-__owur const TLS_GROUP_INFO *tls1_group_id_lookup(uint16_t curve_id);
-__owur int tls1_group_id2nid(uint16_t group_id);
+__owur const TLS_GROUP_INFO *tls1_group_id_lookup(SSL_CTX *ctx, uint16_t curve_id);
+__owur int tls1_group_id2nid(uint16_t group_id, int include_unknown);
 __owur int tls1_check_group_id(SSL *s, uint16_t group_id, int check_own_curves);
 __owur uint16_t tls1_shared_group(SSL *s, int nmatch);
 __owur int tls1_set_groups(uint16_t **pext, size_t *pextlen,
                            int *curves, size_t ncurves);
-__owur int tls1_set_groups_list(uint16_t **pext, size_t *pextlen,
+__owur int tls1_set_groups_list(SSL_CTX *ctx, uint16_t **pext, size_t *pextlen,
                                 const char *str);
 __owur EVP_PKEY *ssl_generate_pkey_group(SSL *s, uint16_t id);
-__owur int tls_valid_group(SSL *s, uint16_t group_id, int version);
+__owur int tls_valid_group(SSL *s, uint16_t group_id, int minversion,
+                           int maxversion);
 __owur EVP_PKEY *ssl_generate_param_group(SSL *s, uint16_t id);
 #  ifndef OPENSSL_NO_EC
 void tls1_get_formatlist(SSL *s, const unsigned char **pformats,
@@ -2713,15 +2756,25 @@ __owur int ssl_log_secret(SSL *ssl, const char *label,
 #define EARLY_EXPORTER_SECRET_LABEL "EARLY_EXPORTER_SECRET"
 #define EXPORTER_SECRET_LABEL "EXPORTER_SECRET"
 
+#  ifndef OPENSSL_NO_KTLS
+/* ktls.c */
+int ktls_check_supported_cipher(const SSL *s, const EVP_CIPHER *c,
+                                const EVP_CIPHER_CTX *dd);
+int ktls_configure_crypto(const SSL *s, const EVP_CIPHER *c, EVP_CIPHER_CTX *dd,
+                          void *rl_sequence, ktls_crypto_info_t *crypto_info,
+                          unsigned char **rec_seq, unsigned char *iv,
+                          unsigned char *key, unsigned char *mac_key,
+                          size_t mac_secret_size);
+#  endif
+
 /* s3_cbc.c */
 __owur char ssl3_cbc_record_digest_supported(const EVP_MD_CTX *ctx);
-__owur int ssl3_cbc_digest_record(SSL *s,
-                                  const EVP_MD_CTX *ctx,
+__owur int ssl3_cbc_digest_record(const EVP_MD *md,
                                   unsigned char *md_out,
                                   size_t *md_out_size,
                                   const unsigned char header[13],
                                   const unsigned char *data,
-                                  size_t data_plus_mac_size,
+                                  size_t data_size,
                                   size_t data_plus_mac_plus_padding_size,
                                   const unsigned char *mac_secret,
                                   size_t mac_secret_length, char is_sslv3);
@@ -2759,17 +2812,31 @@ void ssl_comp_free_compression_methods_int(void);
 /* ssl_mcnf.c */
 void ssl_ctx_system_config(SSL_CTX *ctx);
 
-const EVP_CIPHER *ssl_evp_cipher_fetch(OPENSSL_CTX *libctx,
+const EVP_CIPHER *ssl_evp_cipher_fetch(OSSL_LIB_CTX *libctx,
                                        int nid,
                                        const char *properties);
 int ssl_evp_cipher_up_ref(const EVP_CIPHER *cipher);
 void ssl_evp_cipher_free(const EVP_CIPHER *cipher);
-const EVP_MD *ssl_evp_md_fetch(OPENSSL_CTX *libctx,
+const EVP_MD *ssl_evp_md_fetch(OSSL_LIB_CTX *libctx,
                                int nid,
                                const char *properties);
 int ssl_evp_md_up_ref(const EVP_MD *md);
 void ssl_evp_md_free(const EVP_MD *md);
 
+int tls_provider_set_tls_params(SSL *s, EVP_CIPHER_CTX *ctx,
+                                const EVP_CIPHER *ciph,
+                                const EVP_MD *md);
+
+void tls_engine_finish(ENGINE *e);
+const EVP_CIPHER *tls_get_cipher_from_engine(int nid);
+const EVP_MD *tls_get_digest_from_engine(int nid);
+int tls_engine_load_ssl_client_cert(SSL *s, X509 **px509, EVP_PKEY **ppkey);
+int ssl_hmac_old_new(SSL_HMAC *ret);
+void ssl_hmac_old_free(SSL_HMAC *ctx);
+int ssl_hmac_old_init(SSL_HMAC *ctx, void *key, size_t len, char *md);
+int ssl_hmac_old_update(SSL_HMAC *ctx, const unsigned char *data, size_t len);
+int ssl_hmac_old_final(SSL_HMAC *ctx, unsigned char *md, size_t *len);
+size_t ssl_hmac_old_size(const SSL_HMAC *ctx);
 
 # else /* OPENSSL_UNIT_TEST */
 

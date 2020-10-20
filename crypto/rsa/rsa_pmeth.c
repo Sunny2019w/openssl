@@ -653,9 +653,8 @@ static int pkey_rsa_ctrl_str(EVP_PKEY_CTX *ctx,
         BIGNUM *pubexp = NULL;
         if (!BN_asc2bn(&pubexp, value))
             return 0;
-        ret = EVP_PKEY_CTX_set_rsa_keygen_pubexp(ctx, pubexp);
-        if (ret <= 0)
-            BN_free(pubexp);
+        ret = EVP_PKEY_CTX_set1_rsa_keygen_pubexp(ctx, pubexp);
+        BN_free(pubexp);
         return ret;
     }
 
@@ -799,7 +798,7 @@ static const EVP_PKEY_METHOD rsa_pkey_meth = {
     pkey_rsa_ctrl_str
 };
 
-const EVP_PKEY_METHOD *rsa_pkey_method(void)
+const EVP_PKEY_METHOD *ossl_rsa_pkey_method(void)
 {
     return &rsa_pkey_meth;
 }
@@ -875,7 +874,7 @@ static const EVP_PKEY_METHOD rsa_pss_pkey_meth = {
     pkey_rsa_ctrl_str
 };
 
-const EVP_PKEY_METHOD *rsa_pss_pkey_method(void)
+const EVP_PKEY_METHOD *ossl_rsa_pss_pkey_method(void)
 {
     return &rsa_pss_pkey_meth;
 }

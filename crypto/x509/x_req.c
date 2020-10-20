@@ -13,8 +13,6 @@
 #include <openssl/x509.h>
 #include "crypto/x509.h"
 
-DEFINE_STACK_OF(X509_ATTRIBUTE)
-
 /*-
  * X509_REQ_INFO is handled in an unusual way to get round
  * invalid encodings. Some broken certificate requests don't
@@ -50,7 +48,6 @@ static int rinf_cb(int operation, ASN1_VALUE **pval, const ASN1_ITEM *it,
 static int req_cb(int operation, ASN1_VALUE **pval, const ASN1_ITEM *it,
                   void *exarg)
 {
-#ifndef OPENSSL_NO_SM2
     X509_REQ *ret = (X509_REQ *)*pval;
 
     switch (operation) {
@@ -65,7 +62,6 @@ static int req_cb(int operation, ASN1_VALUE **pval, const ASN1_ITEM *it,
         ASN1_OCTET_STRING_free(ret->distinguishing_id);
         break;
     }
-#endif
 
     return 1;
 }

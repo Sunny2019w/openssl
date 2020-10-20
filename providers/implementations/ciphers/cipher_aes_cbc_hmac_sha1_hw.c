@@ -17,12 +17,12 @@
 #include "cipher_aes_cbc_hmac_sha.h"
 
 #if !defined(AES_CBC_HMAC_SHA_CAPABLE) || !defined(AESNI_CAPABLE)
-int cipher_capable_aes_cbc_hmac_sha1(void)
+int ossl_cipher_capable_aes_cbc_hmac_sha1(void)
 {
     return 0;
 }
 
-const PROV_CIPHER_HW_AES_HMAC_SHA *PROV_CIPHER_HW_aes_cbc_hmac_sha1(void)
+const PROV_CIPHER_HW_AES_HMAC_SHA *ossl_prov_cipher_hw_aes_cbc_hmac_sha1(void)
 {
     return NULL;
 }
@@ -37,7 +37,7 @@ void aesni_cbc_sha1_enc(const void *inp, void *out, size_t blocks,
                         const AES_KEY *key, unsigned char iv[16],
                         SHA_CTX *ctx, const void *in0);
 
-int cipher_capable_aes_cbc_hmac_sha1(void)
+int ossl_cipher_capable_aes_cbc_hmac_sha1(void)
 {
     return AESNI_CBC_HMAC_SHA_CAPABLE;
 }
@@ -59,6 +59,8 @@ static int aesni_cbc_hmac_sha1_init_key(PROV_CIPHER_CTX *vctx,
     sctx->md = sctx->head;
 
     ctx->payload_length = NO_PAYLOAD_LENGTH;
+
+    vctx->removetlspad = SHA_DIGEST_LENGTH + AES_BLOCK_SIZE;
 
     return ret < 0 ? 0 : 1;
 }
@@ -786,7 +788,7 @@ static const PROV_CIPHER_HW_AES_HMAC_SHA cipher_hw_aes_hmac_sha1 = {
 # endif
 };
 
-const PROV_CIPHER_HW_AES_HMAC_SHA *PROV_CIPHER_HW_aes_cbc_hmac_sha1(void)
+const PROV_CIPHER_HW_AES_HMAC_SHA *ossl_prov_cipher_hw_aes_cbc_hmac_sha1(void)
 {
     return &cipher_hw_aes_hmac_sha1;
 }

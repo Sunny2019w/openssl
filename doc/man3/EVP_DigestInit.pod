@@ -27,7 +27,7 @@ EVP_MD_do_all_provided
 
  #include <openssl/evp.h>
 
- EVP_MD *EVP_MD_fetch(OPENSSL_CTX *ctx, const char *algorithm,
+ EVP_MD *EVP_MD_fetch(OSSL_LIB_CTX *ctx, const char *algorithm,
                       const char *properties);
  int EVP_MD_up_ref(EVP_MD *md);
  void EVP_MD_free(EVP_MD *md);
@@ -95,13 +95,13 @@ EVP_MD_do_all_provided
  EVP_PKEY_CTX *EVP_MD_CTX_pkey_ctx(const EVP_MD_CTX *ctx);
  void EVP_MD_CTX_set_pkey_ctx(EVP_MD_CTX *ctx, EVP_PKEY_CTX *pctx);
 
- void EVP_MD_do_all_provided(OPENSSL_CTX *libctx,
+ void EVP_MD_do_all_provided(OSSL_LIB_CTX *libctx,
                              void (*fn)(EVP_MD *mac, void *arg),
                              void *arg);
 
 =head1 DESCRIPTION
 
-The EVP digest routines are a high level interface to message digests,
+The EVP digest routines are a high-level interface to message digests,
 and should be used instead of the digest-specific functions.
 
 The B<EVP_MD> type is a structure for digest method implementation.
@@ -226,7 +226,7 @@ EVP_DigestInit_ex() can be called to initialize a new digest operation.
 =item EVP_DigestFinalXOF()
 
 Interfaces to extendable-output functions, XOFs, such as SHAKE128 and SHAKE256.
-It retrieves the digest value from I<ctx> and places it in I<len>-sized <B>md.
+It retrieves the digest value from I<ctx> and places it in I<len>-sized I<md>.
 After calling this function no additional calls to EVP_DigestUpdate() can be
 made, but EVP_DigestInit_ex() can be called to initialize a new operation.
 
@@ -259,7 +259,7 @@ identifiable with I<name>, otherwise 0.
 If I<md> is a legacy digest (it's the return value from the likes of
 EVP_sha256() rather than the result of an EVP_MD_fetch()), only cipher
 names registered with the default library context (see
-L<OPENSSL_CTX(3)>) will be considered.
+L<OSSL_LIB_CTX(3)>) will be considered.
 
 =item EVP_MD_number()
 
@@ -536,7 +536,7 @@ This function has no return value.
 =head1 NOTES
 
 The B<EVP> interface to message digests should almost always be used in
-preference to the low level interfaces. This is because the code then becomes
+preference to the low-level interfaces. This is because the code then becomes
 transparent to the digest used and much more flexible.
 
 New applications should use the SHA-2 (such as L<EVP_sha256(3)>) or the SHA-3

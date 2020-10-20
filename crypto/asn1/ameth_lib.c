@@ -7,6 +7,9 @@
  * https://www.openssl.org/source/license.html
  */
 
+/* We need to use some engine deprecated APIs */
+#define OPENSSL_SUPPRESS_DEPRECATED
+
 #include "e_os.h"               /* for strncasecmp */
 #include "internal/cryptlib.h"
 #include <stdio.h>
@@ -277,7 +280,7 @@ void EVP_PKEY_asn1_free(EVP_PKEY_ASN1_METHOD *ameth)
 
 void EVP_PKEY_asn1_set_public(EVP_PKEY_ASN1_METHOD *ameth,
                               int (*pub_decode) (EVP_PKEY *pk,
-                                                 X509_PUBKEY *pub),
+                                                 const X509_PUBKEY *pub),
                               int (*pub_encode) (X509_PUBKEY *pub,
                                                  const EVP_PKEY *pk),
                               int (*pub_cmp) (const EVP_PKEY *a,
@@ -358,13 +361,13 @@ void EVP_PKEY_asn1_set_security_bits(EVP_PKEY_ASN1_METHOD *ameth,
 void EVP_PKEY_asn1_set_item(EVP_PKEY_ASN1_METHOD *ameth,
                             int (*item_verify) (EVP_MD_CTX *ctx,
                                                 const ASN1_ITEM *it,
-                                                void *asn,
-                                                X509_ALGOR *a,
-                                                ASN1_BIT_STRING *sig,
+                                                const void *data,
+                                                const X509_ALGOR *a,
+                                                const ASN1_BIT_STRING *sig,
                                                 EVP_PKEY *pkey),
                             int (*item_sign) (EVP_MD_CTX *ctx,
                                               const ASN1_ITEM *it,
-                                              void *asn,
+                                              const void *data,
                                               X509_ALGOR *alg1,
                                               X509_ALGOR *alg2,
                                               ASN1_BIT_STRING *sig))

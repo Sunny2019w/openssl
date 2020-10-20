@@ -1,5 +1,5 @@
 /*
- * Copyright 1995-2016 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 1995-2020 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the Apache License 2.0 (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -12,7 +12,7 @@
 /*
  * Initialisation of global data should never happen via "RUN_ONCE" inside the
  * FIPS module. Global data should instead always be associated with a specific
- * OPENSSL_CTX object. In this way data will get cleaned up correctly when the
+ * OSSL_LIB_CTX object. In this way data will get cleaned up correctly when the
  * module gets unloaded.
  */
 #if !defined(FIPS_MODULE) || defined(ALLOW_RUN_ONCE_IN_FIPS)

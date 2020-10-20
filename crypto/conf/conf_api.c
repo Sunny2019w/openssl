@@ -1,5 +1,5 @@
 /*
- * Copyright 1995-2018 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 1995-2020 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the Apache License 2.0 (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -15,8 +15,6 @@
 #include <string.h>
 #include <openssl/conf.h>
 #include <openssl/conf_api.h>
-
-DEFINE_STACK_OF(CONF_VALUE)
 
 static void value_free_hash(const CONF_VALUE *a, LHASH_OF(CONF_VALUE) *conf);
 static void value_free_stack_doall(CONF_VALUE *a);

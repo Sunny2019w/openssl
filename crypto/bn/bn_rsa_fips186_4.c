@@ -1,5 +1,5 @@
 /*
- * Copyright 2018-2019 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 2018-2020 The OpenSSL Project Authors. All Rights Reserved.
  * Copyright (c) 2018-2019, Oracle and/or its affiliates.  All rights reserved.
  *
  * Licensed under the Apache License 2.0 (the "License").  You may not use
@@ -65,7 +65,7 @@ static int bn_rsa_fips186_4_aux_prime_min_size(int nbits)
 {
     if (nbits >= 3072)
         return 171;
-    if (nbits == 2048)
+    if (nbits >= 2048)
         return 141;
     return 0;
 }
@@ -83,7 +83,7 @@ static int bn_rsa_fips186_4_aux_prime_max_sum_size_for_prob_primes(int nbits)
 {
     if (nbits >= 3072)
         return 1518;
-    if (nbits == 2048)
+    if (nbits >= 2048)
         return 1007;
     return 0;
 }
@@ -109,6 +109,7 @@ static int bn_rsa_fips186_4_find_aux_prob_prime(const BIGNUM *Xp1,
 
     if (BN_copy(p1, Xp1) == NULL)
         return 0;
+    BN_set_flags(p1, BN_FLG_CONSTTIME);
 
     /* Find the first odd number >= Xp1 that is probably prime */
     for(;;) {

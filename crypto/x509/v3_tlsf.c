@@ -1,5 +1,5 @@
 /*
- * Copyright 2015-2018 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 2015-2020 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the Apache License 2.0 (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -14,9 +14,7 @@
 #include <openssl/conf.h>
 #include <openssl/x509v3.h>
 #include "ext_dat.h"
-
-DEFINE_STACK_OF(ASN1_INTEGER)
-DEFINE_STACK_OF(CONF_VALUE)
+#include "x509_local.h"
 
 static STACK_OF(CONF_VALUE) *i2v_TLS_FEATURE(const X509V3_EXT_METHOD *method,
                                              TLS_FEATURE *tls_feature,
@@ -119,7 +117,7 @@ static TLS_FEATURE *v2i_TLS_FEATURE(const X509V3_EXT_METHOD *method,
             if (((*endptr) != '\0') || (extval == endptr) || (tlsextid < 0) ||
                 (tlsextid > 65535)) {
                 X509V3err(X509V3_F_V2I_TLS_FEATURE, X509V3_R_INVALID_SYNTAX);
-                X509V3_conf_err(val);
+                X509V3_conf_add_error_name_value(val);
                 goto err;
             }
         }

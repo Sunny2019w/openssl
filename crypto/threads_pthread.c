@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-2018 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 2016-2020 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the Apache License 2.0 (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -49,7 +49,11 @@ CRYPTO_RWLOCK *CRYPTO_THREAD_lock_new(void)
     }
 
     pthread_mutexattr_init(&attr);
-    pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
+    #if defined(__TANDEM) && defined(_SPT_MODEL_)
+      pthread_mutexattr_setkind_np(&attr,MUTEX_RECURSIVE_NP);
+    #else
+      pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
+    #endif
 
     if (pthread_mutex_init(lock, &attr) != 0) {
         pthread_mutexattr_destroy(&attr);
@@ -191,8 +195,6 @@ int CRYPTO_atomic_add(int *val, int amount, int *ret, CRYPTO_RWLOCK *lock)
 }
 
 # ifndef FIPS_MODULE
-/* TODO(3.0): No fork protection in FIPS module yet! */
-
 #  ifdef OPENSSL_SYS_UNIX
 static pthread_once_t fork_once_control = PTHREAD_ONCE_INIT;
 

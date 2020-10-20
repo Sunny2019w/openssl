@@ -78,7 +78,7 @@ static const DH_NAMED_GROUP dh_named_groups[] = {
 #endif
 };
 
-int ffc_named_group_to_uid(const char *name)
+int ossl_ffc_named_group_to_uid(const char *name)
 {
     size_t i;
 
@@ -89,7 +89,7 @@ int ffc_named_group_to_uid(const char *name)
     return NID_undef;
 }
 
-const char *ffc_named_group_from_uid(int uid)
+const char *ossl_ffc_named_group_from_uid(int uid)
 {
     size_t i;
 
@@ -100,10 +100,10 @@ const char *ffc_named_group_from_uid(int uid)
     return NULL;
 }
 
-static DH *dh_param_init(OPENSSL_CTX *libctx, int uid, const BIGNUM *p,
+static DH *dh_param_init(OSSL_LIB_CTX *libctx, int uid, const BIGNUM *p,
                          const BIGNUM *q, const BIGNUM *g)
 {
-    DH *dh = dh_new_with_libctx(libctx);
+    DH *dh = dh_new_ex(libctx);
 
     if (dh == NULL)
         return NULL;
@@ -117,7 +117,7 @@ static DH *dh_param_init(OPENSSL_CTX *libctx, int uid, const BIGNUM *p,
     return dh;
 }
 
-static DH *dh_new_by_group_name(OPENSSL_CTX *libctx, const char *name)
+static DH *dh_new_by_group_name(OSSL_LIB_CTX *libctx, const char *name)
 {
     int i;
 
@@ -136,19 +136,19 @@ static DH *dh_new_by_group_name(OPENSSL_CTX *libctx, const char *name)
     return NULL;
 }
 
-DH *dh_new_by_nid_with_libctx(OPENSSL_CTX *libctx, int nid)
+DH *dh_new_by_nid_ex(OSSL_LIB_CTX *libctx, int nid)
 {
-    const char *name = ffc_named_group_from_uid(nid);
+    const char *name = ossl_ffc_named_group_from_uid(nid);
 
     return dh_new_by_group_name(libctx, name);
 }
 
 DH *DH_new_by_nid(int nid)
 {
-    return dh_new_by_nid_with_libctx(NULL, nid);
+    return dh_new_by_nid_ex(NULL, nid);
 }
 
-int ffc_set_group_pqg(FFC_PARAMS *ffc, const char *group_name)
+int ossl_ffc_set_group_pqg(FFC_PARAMS *ffc, const char *group_name)
 {
     int i;
     BIGNUM *q = NULL;
@@ -158,10 +158,10 @@ int ffc_set_group_pqg(FFC_PARAMS *ffc, const char *group_name)
 
     for (i = 0; i < (int)OSSL_NELEM(dh_named_groups); ++i) {
         if (strcasecmp(dh_named_groups[i].name, group_name) == 0) {
-            ffc_params_set0_pqg(ffc,
-                                (BIGNUM *)dh_named_groups[i].p,
-                                (BIGNUM *)dh_named_groups[i].q,
-                                (BIGNUM *)dh_named_groups[i].g);
+            ossl_ffc_params_set0_pqg(ffc,
+                                     (BIGNUM *)dh_named_groups[i].p,
+                                     (BIGNUM *)dh_named_groups[i].q,
+                                     (BIGNUM *)dh_named_groups[i].g);
             /* flush the cached nid, The DH layer is responsible for caching */
             ffc->nid = NID_undef;
             return 1;
